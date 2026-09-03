@@ -25,11 +25,11 @@ Bem-vindo ao repositório da Equipe 03 no DevTITANS! A equipe irá criar 2 joyst
 - **Caio Cesar Faneco Gonzaga:** Trabalhar na comunicação entre os 2 Joysticks X Raspberry Pi X 2 Braços Robóticos.
 
 ## Recursos
-
 {Liste os recursos necessários como sensores, dispositivos, etc.}
-1. Raspberry Pi
-  a. Modelo: Mín. Raspberry Pi 4 Model B / Máx. Raspberry Pi 5 Model B.
-  b. Memória: Mín. 4 GB RAM / Máx. 8 GB RAM.
+
+1. Raspberry Pi <br/>
+a. Modelo: Mín. Raspberry Pi 4 Model B / Máx. Raspberry Pi 5 Model B.<br/>
+b. Memória: Mín. 4 GB RAM / Máx. 8 GB RAM.<br/>
 
 
 ## Uso
