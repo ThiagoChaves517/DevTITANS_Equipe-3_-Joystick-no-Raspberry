@@ -27,19 +27,33 @@ Bem-vindo ao repositório da Equipe 03 no DevTITANS! A equipe deverá criar um j
 ## Recursos
 {Liste os recursos necessários como sensores, dispositivos, etc.}
 
-1. **Raspberry Pi** <br/>
-    a. **Modelo**: Mínimo: Raspberry Pi 4 Model B / Desejável: Raspberry Pi 5.<br/>
-    b. **Memória**: Mínimo: 4 GB RAM / Desejável: 16 GB RAM.<br/>
-    c. **Armazenamento**: Mínimo: Micro SD Card 32 GB / Desejável: Micro SD Card 128 GB.
+1. **Raspberry Pi**<br/>
+    a. **Modelo**:<br/>
+       ---> <ins>Mínimo</ins>: Raspberry Pi 4 Model B. / <ins>Desejável</ins>: Raspberry Pi 5 Model B.<br/>
+    b. **Memória**:<br/>
+       ---> <ins>Mínimo</ins>: 4 GB RAM. / <ins>Desejável</ins>: 16 GB RAM.<br/>
+    c. **Armazenamento:**<br/>
+       ---> <ins>Mínimo</ins>: Micro SD Card 32 GB. / <ins>Desejável</ins>: Micro SD Card 128 GB.<br/>
     d. **Carregador**: [Raspberry Pi 15W USB-C Power Supply](https://www.raspberrypi.com/products/type-c-power-supply/).<br/>
     e. **Capa**: [Raspberry Pi 4 Case](https://www.raspberrypi.com/products/raspberry-pi-4-case/).<br/>
     f. **Ventilação**: [Raspberry Pi 4 Case Fan](https://www.raspberrypi.com/products/raspberry-pi-4-case-fan/).<br/>
-    g. **Periférico 1**: [Raspberry Pi Global Shutter Camera](https://www.raspberrypi.com/products/raspberry-pi-global-shutter-camera/) (para possível funcionalidade extra com visão computacional. Precisará de um conector CSI para ligar à Raspberry Pi).<br/>
+    g. **Periféricos**:<br/>
+        ---> <ins>Câmera</ins>: [Raspberry Pi Global Shutter Camera](https://www.raspberrypi.com/products/raspberry-pi-global-shutter-camera/) (para possível funcionalidade extra com o braço mecânico + visão computacional. Um conector CSI para ligar à Raspberry Pi é necessário).<br/>
+        ---> <ins>Sensor de Distância</ins>: A se definir (para possível funcionalidade extra com o braço mecânico).<br/>
+        ---> <ins>Display</ins>: [Raspberry Pi Touch Display 2](https://www.raspberrypi.com/products/touch-display-2/) (para possível funcionalidade extra com braço mecânico ou com um jogo de emulador).
+
+2. **Joystick**
+   a. ???
+   b. ???
+
+4. **Braço Robótico**
+   a. ???
+   b. ???
 
 ## Uso
-
 {Instruções para reproduzir as alterações no AOSP}
+
     
 ## Contato
 
-Para perguntas, sugestões ou feedback, entre em contato com o mantenedor do projeto, Thiago Chaves, em [zuruarque@hotmail.com](zuruarque@hotmail.com).
+Para perguntas, sugestões ou feedback, entre em contato com o mantenedor do projeto em [thiago.chaves@icomp.ufam.edu.br](thiago.chaves@icomp.ufam.edu.br).
