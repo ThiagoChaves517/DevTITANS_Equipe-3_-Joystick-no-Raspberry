@@ -18,8 +18,11 @@ Bem-vindo ao repositório da Equipe 03 no DevTITANS! A equipe deverá criar um j
 <img src="https://github.com/DevTITANS05/Hands-On-Linux-fork-/assets/21023906/85e61f3e-476c-47a4-82d5-4054e856c67b" width="180" >
 <img src="https://github.com/DevTITANS05/Hands-On-Linux-fork-/assets/21023906/85e61f3e-476c-47a4-82d5-4054e856c67b" width="180" >
 
+**Time do Raspberry**
 - **Thiago Pereira Lopes Chaves:** Criar o repositório do trabalho. Trabalhar na instalação/configuração do AOSP na Raspberry Pi.
+**Time do Firmware/Joystick**
 - **Laura Nunes Belém:** Confeccionar o joystick e implementar seu firmware. Confeccionar o braço robótico.
+**Time do Driver**
 - **Raphael Vasconcelos Nunes de Mello:** Implementar o driver para comunicação do joystick com a Raspberry Pi.
 - **William Roberto dos Santos Pereira:** Trabalhar na comunicação Joystick X Raspberry Pi X Braço Robótico.
 - **Caio Cesar Faneco Gonzaga:** Trabalhar na comunicação Joystick X Raspberry Pi X Braço Robótico.
