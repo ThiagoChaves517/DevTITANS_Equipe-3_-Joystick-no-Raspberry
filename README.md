@@ -37,7 +37,7 @@ Bem-vindo ao repositório da Equipe 03 no DevTITANS! A equipe deverá criar um j
         - <ins>Mínimo</ins>: Raspberry Pi 4 Model B. / <ins>Desejável</ins>: Raspberry Pi 5 Model B.<br/>
     - **Memória**:<br/>
         - <ins>Mínimo</ins>: 4 GB RAM. / <ins>Desejável</ins>: 16 GB RAM.<br/>
-    - **Armazenamento:**<br/>
+    - **Armazenamento**:<br/>
         - <ins>Mínimo</ins>: Micro SD Card 32 GB. / <ins>Desejável</ins>: Micro SD Card 128 GB.<br/>
     - **Carregador**: [Raspberry Pi 15W USB-C Power Supply](https://www.raspberrypi.com/products/type-c-power-supply/).<br/>
     - **Capa**: [Raspberry Pi 4 Case](https://www.raspberrypi.com/products/raspberry-pi-4-case/).<br/>
