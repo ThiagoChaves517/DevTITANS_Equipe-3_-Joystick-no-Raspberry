@@ -102,6 +102,8 @@ O módulo (`snes_joystick_driver.c`) é um driver USB registrado via `struct usb
 
 {Instruções para reproduzir as alterações no AOSP}
 
+Nenhuma alteração no AOSP foi ainda realizada. Para instruções de como compilar o AOSP utilizado neste projeto, acesse a Wiki.
+
 ## Contato
 
 Para perguntas, sugestões ou feedback, entre em contato com o mantenedor do projeto em [thiago.chaves@icomp.ufam.edu.br](thiago.chaves@icomp.ufam.edu.br).
