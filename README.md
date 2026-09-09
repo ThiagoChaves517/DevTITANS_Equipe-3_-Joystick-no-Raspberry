@@ -47,8 +47,15 @@ Bem-vindo ao repositório da Equipe 03 no DevTITANS! A equipe deverá criar um j
         - <ins>Sensor de Distância</ins>: A se definir (para possível funcionalidade extra com o braço mecânico).<br/>
         - <ins>Display</ins>: [Raspberry Pi Touch Display 2](https://www.raspberrypi.com/products/touch-display-2/) (para possível funcionalidade extra com braço mecânico ou com um jogo de emulador).
 2. **Joystick**<br/>
-   - ???<br/>
-   - ???<br/>
+   - **ESP32**<br/>
+   - **Joystick Analógico**<br/>
+   - **Botões**<br/>
+       - <ins>6unid</ins><br/>
+   - **Resistor**<br/>
+         - <ins>6unid</ins>10K Ohm<br/>
+   - **Capacitor**<br/>
+         - <ins>6unid</ins>Cerâmico 104<br/>
+   - **Acelerômetro**<br/>
 4. **Braço Robótico**<br/>
    - ???<br/>
    - ???<br/>
