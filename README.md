@@ -51,15 +51,16 @@ Bem-vindo ao repositório da Equipe 03 no DevTITANS! A equipe deverá criar um j
    - **ESP32**<br/>
    - **Joystick Analógico**<br/>
    - **Botões**<br/>
-       - <ins>6unid</ins><br/>
+     - <ins>6 unid.</ins><br/>
    - **Resistor**<br/>
-         - <ins>6unid</ins>10K Ohm<br/>
+     - <ins>6 unid.</ins> 10K Ohm<br/>
    - **Capacitor**<br/>
-         - <ins>6unid</ins>Cerâmico 104<br/>
+     - <ins>6 unid.</ins> Cerâmico 104<br/>
    - **Acelerômetro**<br/>
-4. **Braço Robótico**<br/>
-   - ???<br/>
-   - ???<br/>
+<br/>
+3. **Braço Robótico**<br/>
+   - **4 Servo Motores**<br/>
+   - **Peças em 3D**<br/>
 
 ## Arquitetura do Driver
 
