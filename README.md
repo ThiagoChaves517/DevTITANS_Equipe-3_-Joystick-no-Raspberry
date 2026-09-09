@@ -69,10 +69,10 @@ Bem-vindo ao repositório da Equipe 03 no DevTITANS! A equipe deverá criar um j
 ```mermaid
 flowchart TD
     A["Joystick com acelerômetro<br/>(protocolo SNES)"] --> B["Firmware do microcontrolador<br/>(empacota botões + acelerômetro via USB)"]
-    B --> C["snes_joystick_driver.ko<br/>(módulo de kernel)"]
-    C --> D["Subsistema de Input do Linux<br/>(input_report_key / input_report_abs)"]
-    D --> E["AOSP - InputFlinger<br/>InputReader / InputDispatcher"]
-    E --> F["App de controle do braço robótico"]
+    B --> C["snes_joystick_driver.ko(módulo de kernel)"]
+    C --> D["Subsistema de Input do Linux"]
+    D --> E["AOSP"]
+    E --> F["firmware/app de controle do braço robótico"]
 ```
 
 ### Como o driver funciona
