@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# braco/ (integração Raspberry ↔ braço)
+braco/bridge/out/
+braco/firmware_esp32/SNES_ARM_ESP32/build/
+__pycache__/
