@@ -1,4 +1,5 @@
 #include "BleService.h"
+#include "FrameProtocol.h"
 
 #include <BLEDevice.h>
 #include <BLEUtils.h>
@@ -41,9 +42,11 @@ public:
         Serial.println();
         Serial.println("[BLE] Cliente desconectado.");
 
-        server->startAdvertising();
-
-        Serial.println("[BLE] Advertising reiniciado.");
+        // Nao chamar startAdvertising() aqui: este callback roda na task do Bluedroid e
+        // BLEAdvertising::start() espera (portMAX_DELAY) um evento que essa mesma task
+        // precisa entregar -> a pilha BLE trava. O reinicio e feito em BleService::poll().
+        owner->disconnectedAt = millis();
+        owner->restartAdvertising = true;
     }
 
 private:
@@ -111,17 +114,9 @@ void BleService::begin()
         new BLE2902()
     );
 
-    const uint16_t initialState = 0xFFFF;
-
-    uint8_t data[2];
-
-    data[0] = initialState & 0xFF;
-    data[1] = (initialState >> 8) & 0xFF;
-
-    stateCharacteristic->setValue(
-        data,
-        sizeof(data)
-    );
+    uint8_t initialFrame[Protocol::FRAME_SIZE];
+    Protocol::encode(Protocol::CONTROLLER_STATE, 0, 0xFF, 0xFF, initialFrame);
+    stateCharacteristic->setValue(initialFrame, sizeof(initialFrame));
 
     service->start();
 
@@ -153,26 +148,22 @@ void BleService::begin()
     );
 }
 
-void BleService::update(uint16_t state)
+void BleService::updateFrame(const uint8_t* frame, size_t length)
 {
-
-    if (!connected)
+    if (!connected || stateCharacteristic == nullptr || frame == nullptr || length == 0)
         return;
-
-    if (stateCharacteristic == nullptr)
-        return;
-
-    uint8_t data[2];
-
-    data[0] = state & 0xFF;
-    data[1] = (state >> 8) & 0xFF;
-
-    stateCharacteristic->setValue(
-        data,
-        sizeof(data)
-    );
-
+    stateCharacteristic->setValue(frame, length);
     stateCharacteristic->notify();
+}
+
+void BleService::poll()
+{
+    // 500 ms para a pilha concluir a desconexao (mesmo intervalo dos exemplos do core).
+    if (!restartAdvertising || static_cast<uint32_t>(millis() - disconnectedAt) < 500)
+        return;
+    restartAdvertising = false;
+    BLEDevice::startAdvertising();
+    Serial.println("[BLE] Advertising reiniciado.");
 }
 
 bool BleService::isConnected() const

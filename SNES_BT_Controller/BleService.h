@@ -11,9 +11,12 @@ class BleService
 public:
     void begin();
 
-    void update(uint16_t state);
+    void updateFrame(const uint8_t* frame, size_t length);
 
     bool isConnected() const;
+
+    // Chamar a cada loop(): reinicia o advertising fora do callback da pilha BLE.
+    void poll();
 
 private:
     friend class ServerCallbacks;
@@ -21,5 +24,8 @@ private:
     BLEServer* server = nullptr;
     BLECharacteristic* stateCharacteristic = nullptr;
 
-    bool connected = false;
+    // Escritos na task do Bluetooth, lidos no loop().
+    volatile bool connected = false;
+    volatile bool restartAdvertising = false;
+    volatile uint32_t disconnectedAt = 0;
 };
