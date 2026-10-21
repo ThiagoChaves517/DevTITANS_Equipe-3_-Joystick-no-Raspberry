@@ -2,6 +2,8 @@
 
 Equipe Robô: comunicação Raspberry Pi × braço (Caio, William). Branch `integracao-braco`.
 
+> **Só quer fazer funcionar?** Veja o [TUTORIAL.md](TUTORIAL.md) (o que precisa, instalar, usar, problemas comuns).
+
 O joystick já chega ao Android como um gamepad (`/dev/input/eventX` "SNES-BT-Controller",
 criado pelo `snes_uinput_daemon` da branch `driver`). Esta parte **lê esse gamepad, traduz os
 botões em movimento das 4 juntas e comanda o braço**.
