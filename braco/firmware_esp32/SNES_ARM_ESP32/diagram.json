@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "author": "DevTITANS Equipe 03 - Equipe Robo",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-servo", "id": "base", "top": -220, "left": 220, "attrs": { "hornColor": "#1565c0" } },
+    { "type": "wokwi-servo", "id": "ombro", "top": -110, "left": 220, "attrs": { "hornColor": "#2e7d32" } },
+    { "type": "wokwi-servo", "id": "cotovelo", "top": 0, "left": 220, "attrs": { "hornColor": "#ef6c00" } },
+    { "type": "wokwi-servo", "id": "garra", "top": 110, "left": 220, "attrs": { "hornColor": "#6a1b9a" } }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "base:PWM", "esp:25", "orange", [] ],
+    [ "base:V+", "esp:5V", "red", [] ],
+    [ "base:GND", "esp:GND.1", "black", [] ],
+    [ "ombro:PWM", "esp:26", "orange", [] ],
+    [ "ombro:V+", "esp:5V", "red", [] ],
+    [ "ombro:GND", "esp:GND.1", "black", [] ],
+    [ "cotovelo:PWM", "esp:27", "orange", [] ],
+    [ "cotovelo:V+", "esp:5V", "red", [] ],
+    [ "cotovelo:GND", "esp:GND.1", "black", [] ],
+    [ "garra:PWM", "esp:13", "orange", [] ],
+    [ "garra:V+", "esp:5V", "red", [] ],
+    [ "garra:GND", "esp:GND.1", "black", [] ]
+  ],
+  "dependencies": {}
+}

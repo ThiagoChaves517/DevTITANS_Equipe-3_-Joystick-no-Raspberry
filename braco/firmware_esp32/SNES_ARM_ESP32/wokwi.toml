@@ -1,0 +1,6 @@
+# Wokwi para VS Code: compile antes com
+#   arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir build .
+[wokwi]
+version = 1
+firmware = 'build/SNES_ARM_ESP32.ino.bin'
+elf = 'build/SNES_ARM_ESP32.ino.elf'
