@@ -1,0 +1,33 @@
+// Opcional: compilar a bridge junto com o AOSP (ver aosp/README.md).
+// Copie a pasta braco/ para dentro da árvore (ex.: vendor/devtitans/braco).
+
+cc_binary {
+    name: "snes_arm_bridge",
+    vendor: true,
+    srcs: [
+        "bridge/main.c",
+        "bridge/mapping.c",
+        "bridge/arm_model.c",
+        "bridge/input.c",
+        "bridge/input_stdin.c",
+        "bridge/input_evdev.c",
+        "bridge/backend.c",
+        "bridge/link_text.c",
+        "bridge/backend_serial.c",
+        "bridge/backend_tcp.c",
+        "bridge/backend_gpio.c",
+    ],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-D_GNU_SOURCE",
+    ],
+    init_rc: ["aosp/snes_arm_bridge.rc"],
+}
+
+cc_binary {
+    name: "snes_fake_pad",
+    vendor: true,
+    srcs: ["bridge/tools/snes_fake_pad.c"],
+    cflags: ["-Wall", "-Wextra"],
+}

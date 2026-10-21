@@ -1,0 +1,10 @@
+# Inicia a bridge do braço depois do boot e a reinicia se cair.
+# Para o modo direto troque "--backend serial" por "--backend gpio".
+service snes_arm_bridge /vendor/bin/snes_arm_bridge --backend serial --device auto
+    class late_start
+    user root
+    group root input uhid
+    disabled
+
+on property:sys.boot_completed=1
+    start snes_arm_bridge

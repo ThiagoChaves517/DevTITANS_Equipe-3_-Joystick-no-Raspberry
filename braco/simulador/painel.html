@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador do Braço</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d232b; --muted: #5d6875; --line: #d9dee4;
+    --arm: #1f5fbf; --arm2: #3d86e8; --target: #e0861a; --ok: #1d8a4e; --bad: #c0392b; --grid: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12161b; --panel: #1b2128; --ink: #e6eaef; --muted: #98a3ae; --line: #2d353f;
+      --arm: #5b9cff; --arm2: #8dbaff; --target: #f0a040; --ok: #3cc47c; --bad: #ff6b5b; --grid: #222a33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12161b; --panel: #1b2128; --ink: #e6eaef; --muted: #98a3ae; --line: #2d353f;
+    --arm: #5b9cff; --arm2: #8dbaff; --target: #f0a040; --ok: #3cc47c; --bad: #ff6b5b; --grid: #222a33;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 2px; }
+  .sub { color: var(--muted); margin: 0 0 14px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: 1.4fr 1fr; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  canvas { width: 100%; height: auto; display: block; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 600;
+          border: 1px solid var(--line); margin: 0 6px 6px 0; }
+  .on { color: var(--ok); border-color: var(--ok); }
+  .off { color: var(--bad); border-color: var(--bad); }
+  .joint { margin: 8px 0 12px; }
+  .joint .top { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+  .bar { position: relative; height: 10px; background: var(--grid); border-radius: 5px; margin-top: 4px; }
+  .bar .cur { position: absolute; top: -3px; width: 4px; height: 16px; background: var(--arm); border-radius: 2px; }
+  .bar .tgt { position: absolute; top: -5px; width: 10px; height: 20px; border: 2px solid var(--target); border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
+  td:first-child { font-weight: 600; width: 70px; }
+  .log { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--muted); max-height: 180px; overflow: auto;
+         white-space: pre-wrap; word-break: break-word; }
+  .legend { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .legend b { color: var(--arm); } .legend i { color: var(--target); font-style: normal; font-weight: 700; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Simulador do braço MeArm</h1>
+  <p class="sub">Mesmo protocolo do firmware SNES_ARM_ESP32. Atualiza a cada 50 ms.</p>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Vista lateral (ombro e cotovelo)</h2>
+      <canvas id="side" width="640" height="360"></canvas>
+      <p class="legend"><b>azul</b> = posição real (com rampa) · <i>laranja</i> = alvo enviado pela bridge</p>
+    </section>
+
+    <section class="card">
+      <h2>Estado</h2>
+      <div id="pills"></div>
+      <div id="joints"></div>
+    </section>
+
+    <section class="card">
+      <h2>Vista de cima (base) e garra</h2>
+      <canvas id="top" width="640" height="300"></canvas>
+    </section>
+
+    <section class="card">
+      <h2>Página do controle</h2>
+      <table id="mapping"></table>
+      <h2 style="margin-top:14px">Eventos</h2>
+      <div class="log" id="log"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const L1 = 80, L2 = 80, GRIP = 50, BASE_H = 45;   // mm, aproximado do MeArm
+const PAGES = {
+  1: [["B", "cotovelo sobe"], ["Y", "cotovelo desce"], ["A", "abre a garra"], ["X", "fecha a garra"]],
+  2: [["B", "ombro sobe"], ["Y", "ombro desce"], ["A", "base gira (+)"], ["X", "base gira (−)"]],
+};
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const rad = d => d * Math.PI / 180;
+
+function kinematics(a) {
+  const [base, ombro, cotovelo] = a;
+  const t1 = rad(ombro), phi = rad(cotovelo - 90);
+  const elbow = { x: L1 * Math.cos(t1), y: BASE_H + L1 * Math.sin(t1) };
+  const wrist = { x: elbow.x + L2 * Math.cos(phi), y: elbow.y + L2 * Math.sin(phi) };
+  return { base, elbow, wrist, reach: wrist.x + GRIP };
+}
+
+function drawSide(ctx, cur, tgt, joints) {
+  const W = ctx.canvas.width, H = ctx.canvas.height, s = 1.45, ox = W * 0.42, oy = H - 30;
+  const P = p => [ox + p.x * s, oy - p.y * s];
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 29) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 29) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  ctx.strokeStyle = css("--muted"); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(20, oy); ctx.lineTo(W - 20, oy); ctx.stroke();
+  ctx.fillStyle = css("--line"); ctx.fillRect(ox - 40, oy - BASE_H * s, 80, BASE_H * s);
+
+  const arm = (a, color, width, dashed) => {
+    const k = kinematics(a), sh = P({ x: 0, y: BASE_H }), el = P(k.elbow), wr = P(k.wrist);
+    const tip = P({ x: k.wrist.x + GRIP, y: k.wrist.y });
+    const g = joints ? (a[3] - joints[3].min) / (joints[3].max - joints[3].min) : 0.5;
+    ctx.setLineDash(dashed ? [7, 6] : []); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(...sh); ctx.lineTo(...el); ctx.lineTo(...wr); ctx.lineTo(...tip); ctx.stroke();
+    const open = 4 + g * 14;
+    ctx.lineWidth = Math.max(2, width - 4);
+    ctx.beginPath(); ctx.moveTo(tip[0] - 14, tip[1] - open); ctx.lineTo(tip[0] + 6, tip[1] - open); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tip[0] - 14, tip[1] + open); ctx.lineTo(tip[0] + 6, tip[1] + open); ctx.stroke();
+    ctx.setLineDash([]);
+    if (!dashed) for (const p of [sh, el, wr]) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(...p, 6, 0, 7); ctx.fill(); }
+  };
+  arm(tgt, css("--target"), 4, true);
+  arm(cur, css("--arm"), 9, false);
+
+  ctx.fillStyle = css("--muted"); ctx.font = "12px system-ui";
+  ctx.fillText("frente →", W - 80, oy + 18);
+}
+
+function drawTop(ctx, cur, tgt, joints) {
+  const W = ctx.canvas.width, H = ctx.canvas.height, cx = W * 0.32, cy = H - 40, s = 0.95;
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, 210 * s, Math.PI, 0); ctx.stroke();
+
+  if (joints) {
+    ctx.strokeStyle = css("--grid"); ctx.lineWidth = 14;
+    ctx.beginPath(); ctx.arc(cx, cy, 120 * s, -rad(joints[0].max), -rad(joints[0].min)); ctx.stroke();
+  }
+  const ray = (a, color, width, dashed) => {
+    const r = Math.max(30, kinematics(a).reach) * s;
+    ctx.setLineDash(dashed ? [7, 6] : []); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + r * Math.cos(rad(a[0])), cy - r * Math.sin(rad(a[0]))); ctx.stroke();
+    ctx.setLineDash([]);
+  };
+  ray(tgt, css("--target"), 4, true);
+  ray(cur, css("--arm"), 9, false);
+  ctx.fillStyle = css("--arm"); ctx.beginPath(); ctx.arc(cx, cy, 12, 0, 7); ctx.fill();
+
+  // Garra vista de frente
+  const gx = W * 0.8, gy = H * 0.5;
+  const g = joints ? (cur[3] - joints[3].min) / (joints[3].max - joints[3].min) : 0.5;
+  const open = 8 + g * 46;
+  ctx.fillStyle = css("--arm");
+  ctx.fillRect(gx - open - 14, gy - 50, 14, 100);
+  ctx.fillRect(gx + open, gy - 50, 14, 100);
+  ctx.fillStyle = css("--muted"); ctx.font = "12px system-ui";
+  ctx.fillText(`garra ${Math.round(g * 100)}% aberta`, gx - 52, gy + 74);
+  ctx.fillText(`base ${Math.round(cur[0])}°`, cx - 24, cy + 26);
+}
+
+function renderState(st) {
+  const pill = (ok, yes, no) => `<span class="pill ${ok ? "on" : "off"}">${ok ? yes : no}</span>`;
+  document.getElementById("pills").innerHTML =
+    pill(st.connected, "bridge conectada", "bridge desconectada") +
+    pill(st.streaming, `recebendo J · ${st.rate_hz} Hz`, "parado (sem J)") +
+    (st.homing ? '<span class="pill on">voltando p/ home</span>' : "") +
+    `<span class="pill">watchdog: ${st.watchdog_events}</span>`;
+
+  document.getElementById("joints").innerHTML = st.joints.map((j, i) => {
+    const pos = v => ((v - j.min) / (j.max - j.min) * 100).toFixed(1);
+    return `<div class="joint"><div class="top"><span>${j.name}</span>
+      <span>${st.current[i].toFixed(0)}° → alvo ${st.target[i].toFixed(0)}° <small>(${j.min}–${j.max})</small></span></div>
+      <div class="bar"><div class="tgt" style="left:calc(${pos(st.target[i])}% - 5px)"></div>
+      <div class="cur" style="left:calc(${pos(st.current[i])}% - 2px)"></div></div></div>`;
+  }).join("");
+
+  const page = PAGES[st.page] ? st.page : 1;
+  document.getElementById("mapping").innerHTML =
+    `<tr><td colspan="2">Página ${page} · ${page === 1 ? "COTOVELO/GARRA" : "BASE/OMBRO"}</td></tr>` +
+    PAGES[page].map(([b, f]) => `<tr><td>${b}</td><td>${f}</td></tr>`).join("") +
+    `<tr><td>START</td><td>curto: troca de página · segurar 1,5 s: home</td></tr>` +
+    `<tr><td>D-pad</td><td>←/→ base · ↑/↓ ombro (sempre)</td></tr>`;
+
+  document.getElementById("log").textContent = st.log.slice().reverse().join("\n");
+}
+
+const sideCtx = document.getElementById("side").getContext("2d");
+const topCtx = document.getElementById("top").getContext("2d");
+
+async function tick() {
+  try {
+    const st = await (await fetch("/state", { cache: "no-store" })).json();
+    drawSide(sideCtx, st.current, st.target, st.joints);
+    drawTop(topCtx, st.current, st.target, st.joints);
+    renderState(st);
+  } catch (e) {
+    document.getElementById("pills").innerHTML = '<span class="pill off">simulador parado</span>';
+  }
+  setTimeout(tick, 50);
+}
+tick();
+</script>
+</body>
+</html>

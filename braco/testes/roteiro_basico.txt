@@ -1,0 +1,19 @@
+# Roteiro para o snes_fake_pad: percorre as duas páginas e o home.
+sleep 3000
+# Página 1 (COTOVELO/GARRA)
+hold B 800
+hold A 600
+hold X 400
+# START curto -> página 2 (BASE/OMBRO)
+tap START 150
+sleep 200
+hold A 700
+hold B 600
+# D-pad (base) funciona em qualquer página
+hat x -1
+sleep 500
+hat x 0
+# START segurado -> home
+hold START 1800
+sleep 3000
+quit
