@@ -17,4 +17,5 @@ local.properties
 # braco/ (integração Raspberry ↔ braço)
 braco/bridge/out/
 braco/firmware_esp32/SNES_ARM_ESP32/build/
+braco/firmware_esp32/host_test/out/
 __pycache__/
