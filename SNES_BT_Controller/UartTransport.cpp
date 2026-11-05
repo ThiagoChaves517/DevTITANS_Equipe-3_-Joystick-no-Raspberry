@@ -2,8 +2,9 @@
 #include "BoardConfig.h"
 
 namespace {
-constexpr int UART_RX_PIN = 16; // ESP32 RX2 <- Raspberry Pi TX
-constexpr int UART_TX_PIN = 17; // ESP32 TX2 -> Raspberry Pi RX
+// GPIO16/17 (pinos padrao da UART2) agora sao os botoes A e X.
+constexpr int UART_RX_PIN = 22; // ESP32 RX2 <- Raspberry Pi TX
+constexpr int UART_TX_PIN = 23; // ESP32 TX2 -> Raspberry Pi RX
 }
 
 void UartTransport::begin(uint32_t baud) {

@@ -1,7 +1,8 @@
 #include "InputManager.h"
 #include "SnesState.h"
-void InputManager::begin() { buttons.begin(); accelerometer.begin(); }
+void InputManager::begin() { buttons.begin(); accelerometer.begin(); joystick.begin(); }
 bool InputManager::isSelectPressed() const { return buttons.isSelectPressed(); }
+bool InputManager::isStartPressed() const { return buttons.isStartPressed(); }
 
 void InputManager::printButtonTransitions() {
     const bool b = buttons.isBPressed();
@@ -33,29 +34,29 @@ void InputManager::setMode(InputMode mode) {
     currentMode=mode;
     Serial.printf("[INPUT] Modo: %s\n", currentMode==BUTTON_MODE ? "BUTTON" : "ACCELEROMETER");
 }
-uint8_t InputManager::readGripState() { return currentMode==ACCELEROMETER_MODE ? accelerometer.readGripState() : 0; }
+uint8_t InputManager::readGripState() {
+    // A garra vem de A/B nos dois modos; ambos ou nenhum = neutro.
+    const bool open=buttons.isAPressed(), close=buttons.isBPressed();
+    if (open && !close) return 1; // OPEN
+    if (close && !open) return 2; // CLOSE
+    return 0; // NEUTRAL
+}
 uint16_t InputManager::readState() {
     printButtonTransitions();
-    if (currentMode==ACCELEROMETER_MODE) {
-        uint16_t state=accelerometer.readState();
-        // SELECT/START continuam disponiveis fisicamente em ambos os modos.
-        if (buttons.isSelectPressed()) state &= ~(1u<<Snes::SELECT);
-        if (buttons.isStartPressed()) state &= ~(1u<<Snes::START);
-        return state;
-    }
-    return readButtonState();
-}
-uint16_t InputManager::readButtonState() {
+    // Botoes iguais nos dois modos: A/B (garra), X/Y (frente/tras), SELECT (modos) e START (calibracao).
     uint16_t state=Snes::ALL_RELEASED;
+    if(buttons.isAPressed()) state &= ~(1u<<Snes::A);
     if(buttons.isBPressed()) state &= ~(1u<<Snes::B);
-    if(buttons.isYPressed()) state &= ~(1u<<Snes::Y);
     if(buttons.isSelectPressed()) state &= ~(1u<<Snes::SELECT);
     if(buttons.isStartPressed()) state &= ~(1u<<Snes::START);
-    if(buttons.isAPressed()) state &= ~(1u<<Snes::A);
-    if(buttons.isXPressed()) state &= ~(1u<<Snes::X);
-    return state;
+    if(buttons.isXPressed()) state &= ~(1u<<Snes::X); // frente
+    if(buttons.isYPressed()) state &= ~(1u<<Snes::Y); // tras
+    // Direcional: no modo acelerometro a inclinacao substitui o potenciometro.
+    if (currentMode==ACCELEROMETER_MODE) return state & accelerometer.readState();
+    return state & joystick.readState();
 }
 
 void InputManager::printDiagnostics() {
-    accelerometer.printDiagnostics();
+    if (currentMode==ACCELEROMETER_MODE) accelerometer.printDiagnostics();
+    else joystick.printDiagnostics();
 }
