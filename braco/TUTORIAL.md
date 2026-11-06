@@ -1,22 +1,22 @@
-# Tutorial rápido: controlar o braço pela Raspberry
+# Tutorial rápido: braço controlado pela Raspberry
 
-Resumo prático. Os detalhes estão em [README.md](README.md) e o protocolo em [PROTOCOLO.md](PROTOCOLO.md).
+Resumo prático. Os detalhes estão em [README.md](README.md), [docs/OPERACAO.md](docs/OPERACAO.md) e
+[docs/protocolo_serial.md](docs/protocolo_serial.md).
 
 ## 1. O que precisa
 
 | Item | Para quê |
 |---|---|
-| Raspberry Pi 4 com GloDroid (build `userdebug`) + cabo USB-C no computador | roda a bridge; `adb root` precisa funcionar |
-| Braço MeArm com 4 servos SG90 | o braço |
-| **Fonte 5 V externa, ≥ 2 A** | alimentar os servos (**nunca** pela Raspberry ou pelo ESP32) |
-| ESP32 DevKit com chip **CP2102** (ou ESP32-S2/S3 com USB nativo) + cabo USB | controla os servos (caminho recomendado). **CH340 não funciona** |
-| Joystick + APK + `snes_uinput_daemon` (Equipe Joystick) | opcional: dá para testar com o controle falso |
+| Raspberry Pi 4 com GloDroid (build `userdebug`) + cabo USB-C no computador | roda os dois drivers; `adb root` precisa funcionar |
+| Joystick + app + `snes_input_daemon` (Equipe Joystick, branch `driver`) | gera o gamepad `SNES-BT-Controller` que o `snes_arm_daemon` lê |
+| ESP32 do braço com chip **CP2102** (ou USB nativo) + cabo USB de dados | recebe os 16 bits e move os servos. **CH340 não funciona** |
+| Braço com 4 servos SG90 + **fonte 5 V externa (3–5 A)** | o braço. GND da fonte ligado ao GND do ESP32 |
 
 No computador:
-- `adb` (Android platform-tools)
-- **Android NDK 27.0.12077973**, que é o mesmo da wiki do driver. Pelo Android Studio: *SDK Manager › SDK Tools › NDK*. Ou: `sdkmanager "ndk;27.0.12077973"` (~2,4 GB)
-- **Arduino IDE** com o core "esp32" da Espressif, para gravar o ESP32
-- **Python 3**, para o simulador. Não precisa de nenhuma biblioteca extra
+- `adb`
+- **Android NDK** (o 27.0.12077973 é o da wiki do driver). Se houver mais de um, defina `ANDROID_NDK_HOME`
+- **Arduino IDE** com o core "esp32" da Espressif
+- **Python 3**, só para o simulador e o teste integrado
 
 ## 2. Instalar (uma vez)
 
@@ -28,44 +28,61 @@ git clone git@github.com:ThiagoChaves517/DevTITANS_Equipe-3_-Joystick-no-Raspber
 cd DevTITANS_Equipe-3_-Joystick-no-Raspberry && git checkout integracao-braco
 ```
 
-Compile e envie para a Raspberry. O script descobre o NDK sozinho, ou você pode passar `NDK=/caminho`:
-
 ```bash
-braco/bridge/build.sh deploy
+braco/daemon/test.sh
 ```
 
-Isso coloca `snes_arm_bridge` e `snes_fake_pad` em `/data/local/tmp/`.
+## 3. Gravar o ESP32 do braço
 
-## 3. Montar e gravar o ESP32
-
-1. Ligue os servos. O sinal (fio laranja) vai assim: base no **GPIO25**, ombro no **GPIO26**, cotovelo no **GPIO27** e garra no **GPIO13**.
-   O vermelho vai no **+5 V da fonte**, e o marrom no **GND da fonte**, que também precisa ir ao **GND do ESP32**.
+1. Ligue os servos: base no **GPIO25**, ombro no **26**, cotovelo no **27** e garra no **12**. O vermelho vai no +5 V da fonte, e o marrom no GND da fonte e do ESP32.
 2. Na Arduino IDE, abra `braco/firmware_esp32/SNES_ARM_ESP32/SNES_ARM_ESP32.ino`, escolha a placa **ESP32 Dev Module** e grave.
-3. Teste sozinho no Monitor Serial (115200, "Nova linha"). Deve aparecer `READY SNES-ARM-ESP32 1.0`. Digite `J 90 90 90 60` e o braço vai para home.
-4. **Calibre** antes de usar de verdade (README › Calibração): mova cada junta de 5 em 5° e anote onde encosta em `ArmConfig.h`.
-5. Ligue o ESP32 numa porta USB-A da Raspberry.
+3. No Monitor Serial (115200), deve aparecer `[ARM] SNES-ARM-ESP32 2.0: aguardando quadros da Raspberry` e os servos vão para 90/90/90/60.
+4. **Calibre** os limites de `ArmConfig.h` com o braço montado. Os valores atuais são o exemplo do fluxograma do William.
+5. Ligue o ESP32 numa USB-A da Raspberry.
 
 ## 4. Usar
 
-**Com tudo ligado.** Primeiro suba o joystick, seguindo a wiki "Comandos para executar a aplicação ‐ Driver". Depois:
+**4.1. Suba o joystick** (Equipe Joystick), na raiz do repositório:
 
 ```bash
-adb shell /data/local/tmp/snes_arm_bridge
+scripts/deploy.sh
 ```
 
-O esperado é `[SERIAL] conectado em /dev/ttyUSB0`, depois `firmware pronto`, e por fim `braço pronto: comandos liberados`.
-
-**Sem joystick (controle falso):**
+**4.2. Suba o driver do braço:**
 
 ```bash
-adb push braco/testes/roteiro_basico.txt /data/local/tmp/
+braco/scripts/deploy.sh
+```
+
+No log, o esperado é `controle encontrado`, depois `conectado ao braço em /dev/ttyUSB0`, e por fim `braço pronto`.
+
+**4.3. Se o ESP32 do joystick também estiver na USB**, escolha a porta do braço pelo número da porta física:
+
+```bash
+adb shell /data/local/tmp/snes_arm_daemon --list
 ```
 
 ```bash
-adb shell "cd /data/local/tmp && (./snes_fake_pad < roteiro_basico.txt &) ; ./snes_arm_bridge"
+DEVICE=usb:1-1.3 braco/scripts/deploy.sh
 ```
 
-**Sem braço (simulador no computador).** São três terminais:
+**4.4. Para parar:**
+
+```bash
+braco/scripts/deploy.sh stop
+```
+
+O daemon manda "solta tudo" ao braço antes de sair.
+
+## 5. Testar sem o hardware completo
+
+**Teste automático na Raspberry** (sem joystick e sem ESP32). Ele usa o daemon real do Raphael e um ESP32 falso:
+
+```bash
+python3 braco/scripts/device_test.py
+```
+
+**Simulador visual** no computador, em três terminais:
 
 ```bash
 python3 braco/simulador/arm_sim.py
@@ -76,50 +93,48 @@ adb reverse tcp:7878 tcp:7878
 ```
 
 ```bash
-adb shell /data/local/tmp/snes_arm_bridge --backend tcp
+adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878
 ```
 
-Abra http://127.0.0.1:8787 para ver o braço se mexer.
+Abra http://127.0.0.1:8787 e use o joystick ou o `snes_fake_pad`.
 
-**Sem ESP32 (servos direto na Raspberry).** O sinal vai nos GPIO 17/27/22/23 (pinos 11/13/15/16), com o GND da fonte no pino 14:
+**Firmware do braço sem ESP32**, no computador:
 
 ```bash
-adb shell /data/local/tmp/snes_arm_bridge --backend gpio
+braco/firmware_esp32/host_test/run.sh
 ```
 
-Para parar: `Ctrl+C`. A bridge manda `S` e o braço congela.
+Depois digite, por exemplo, `state FEFF` (A pressionado), `@500` e `state FFFF`.
 
-## 5. Controles
+## 6. Controles (wiki do William)
 
-| | Página 1 (inicial) | Página 2 |
-|---|---|---|
-| B / Y | cotovelo sobe / desce | ombro sobe / desce |
-| A / X | abre / fecha a garra | base + / − |
-| START curto | troca de página | troca de página |
-| START 1,5 s | home | home |
-
-A junta só anda enquanto o botão está apertado. O D-pad, se existir, sempre move a base e o ombro.
-O SELECT é do joystick: curto troca BLE/fio, segurado 5 s liga o acelerômetro.
-
-## 6. Deu problema?
-
-| Sintoma | O que fazer |
+| Botão | Braço |
 |---|---|
-| `nenhuma serial encontrada` | Rode `adb shell ls /dev/ttyUSB* /dev/ttyACM*`. Se não aparecer nada, o ESP32 provavelmente tem **CH340**: troque a placa ou veja `aosp/README.md` |
-| `não respondeu READY/OK` | O firmware não está gravado, ou essa porta é outro dispositivo, como o ESP32 do joystick |
-| `procurando controle SNES-BT-Controller` não sai disso | O `snes_uinput_daemon` não está rodando. Teste com o `snes_fake_pad` |
-| `Permission denied` em `/dev/...` | Rode `adb root` antes |
-| Os botões não mexem nada | Confira a página (START troca) e se a junta já não está no limite |
-| Servo treme ou a placa reinicia | A fonte é fraca ou falta o GND comum. No modo `gpio`, algum tremor é normal (PWM por software) |
-| Junta anda ao contrário | Em `ArmConfig.h`, mude `inverted` da junta para `true` |
-| `# WATCHDOG` no Monitor Serial | É normal quando a bridge para: o braço congela por segurança |
+| ← / → (analógico ou inclinação) | gira a base |
+| ↑ / ↓ (analógico ou inclinação) | sobe / desce o ombro |
+| B / Y | sobe / desce o cotovelo |
+| A / X | abre / fecha a garra |
+| Start | para tudo enquanto pressionado |
+| Select | no joystick: curto troca BLE/fio, 5 s liga o acelerômetro |
 
-## 7. Limpar depois
+## 7. Deu problema?
+
+| Sintoma no log | O que fazer |
+|---|---|
+| `aguardando o controle "SNES-BT-Controller"` | O `snes_input_daemon` não está rodando: suba o lado do joystick |
+| `nenhuma serial USB` | Rode `adb shell ls /dev/ttyUSB* /dev/ttyACM*`. Se não aparecer nada, a placa provavelmente tem CH340 (sem driver no kernel) ou o cabo é só de carga |
+| `mais de uma serial USB` | Dois ESP32 na USB: use `--list` e `DEVICE=usb:<porta>` |
+| `abrir /dev/ttyUSB0: Permission denied` | Rode `adb root` antes |
+| Servo não mexe, mas o log está ok | Rode com `--echo` para ver o `[ARM]` do ESP32. Confira a fonte 5 V, o GND comum e se a junta já está no limite |
+| ESP32 não liga com a garra conectada | GPIO12 é *strapping*: solte o fio da garra no boot |
+| Junta anda ao contrário | Em `ArmConfig.h`, mude `inverted` da junta para `true` |
+
+## 8. Limpar depois
 
 ```bash
-adb shell rm /data/local/tmp/snes_arm_bridge /data/local/tmp/snes_fake_pad /data/local/tmp/roteiro_basico.txt
+braco/scripts/deploy.sh stop
 ```
 
 ```bash
-adb reverse --remove-all
+adb shell rm /data/local/tmp/snes_arm_daemon /data/local/tmp/frame_sniffer /data/local/tmp/snes_fake_pad /data/local/tmp/snes_arm_daemon.log
 ```

@@ -16,6 +16,8 @@
 
 #define ESP_ARDUINO_VERSION_MAJOR 3
 
+#define constrain(amt, low, high) ((amt) < (low) ? (low) : ((amt) > (high) ? (high) : (amt)))
+
 uint32_t millis();
 void delay(uint32_t ms);
 

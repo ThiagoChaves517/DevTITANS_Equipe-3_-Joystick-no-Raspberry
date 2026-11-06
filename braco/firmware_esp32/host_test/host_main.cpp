@@ -1,13 +1,17 @@
 /*
  * Roda setup()/loop() do firmware no computador.
  *
- *   ./run.sh                         interativo: digite J/H/S/P/I
- *   ./run.sh < comandos.txt          linhas "@<ms>" esperam antes do próximo comando
+ *   ./run.sh                    interativo
+ *   ./run.sh < roteiro.txt      um comando por linha:
+ *       state FEFF              manda um quadro CONTROLLER_STATE com esses 16 bits
+ *       raw 53 4E 01 ...        manda bytes crus (testar quadro quebrado)
+ *       @500                    espera 500 ms antes do próximo comando
  *
- * Ao final imprime "# DUTY pino=duty(µs)" de cada servo, para conferir o PWM.
+ * Ao final imprime "# DUTY GPIOn=duty (µs)" de cada servo, para conferir o PWM.
  */
 
 #include "Arduino.h"
+#include "FrameProtocol.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -76,13 +80,35 @@ static void pump_stdin()
         if (nl == std::string::npos)
             break;
 
-        std::string line = stdin_buf.substr(0, nl + 1);
+        std::string line = stdin_buf.substr(0, nl);
         stdin_buf.erase(0, nl + 1);
 
+        if (line.empty() || line[0] == '#')
+            continue;
+
         if (line[0] == '@')
+        {
             release_at = millis() + (uint32_t)std::atoi(line.c_str() + 1);
+        }
+        else if (line.rfind("state ", 0) == 0)
+        {
+            static uint8_t seq = 0;
+            const uint16_t st = (uint16_t)std::strtoul(line.c_str() + 6, nullptr, 16);
+            uint8_t frame[Protocol::FRAME_SIZE];
+            Protocol::encode(Protocol::CONTROLLER_STATE, seq++, uint8_t(st), uint8_t(st >> 8), frame);
+            pending.assign((const char *)frame, sizeof(frame));
+        }
+        else if (line.rfind("raw ", 0) == 0)
+        {
+            char *p = (char *)line.c_str() + 4;
+            char *end;
+            for (unsigned long v; (v = std::strtoul(p, &end, 16)), end != p; p = end)
+                pending.push_back((char)v);
+        }
         else
-            pending = line;
+        {
+            std::printf("# comando desconhecido: %s\n", line.c_str());
+        }
     }
 }
 

@@ -1,248 +1,160 @@
 #!/usr/bin/env python3
 """
-Simulador do braço MeArm (4 DOF, 4x SG90) — fala o MESMO protocolo do
-firmware SNES_ARM_ESP32, então a bridge não sabe que não é o braço real.
+Simulador do braço (4x SG90): faz o papel do ESP32 com o firmware SNES_ARM_ESP32.
+
+Recebe os quadros de 8 bytes que o snes_arm_daemon repassa (53 4E 01 01 seq p0 p1 CRC),
+aplica a MESMA tabela da wiki do William (ArmMapping.h) e o mesmo ritmo do firmware
+(1 grau a cada 25 ms, limites do fluxograma, direções zeradas após 250 ms sem quadro).
+Como o braço real, não responde nada.
 
 Uso (só biblioteca padrão do Python 3):
-
-    python3 arm_sim.py                 # TCP em 127.0.0.1:7878 + painel em http://127.0.0.1:8787
-    python3 arm_sim.py --pty           # também cria uma serial falsa (/dev/ttysNNN) para a bridge do Mac
-
-Com a Raspberry:
+    python3 arm_sim.py                       # escuta em 127.0.0.1:7878, painel em http://127.0.0.1:8787
     adb reverse tcp:7878 tcp:7878
-    adb shell /data/local/tmp/snes_arm_bridge --backend tcp
-
-O comportamento imita o firmware: limites por junta, rampa de 180°/s,
-home a 60°/s, watchdog de 300 ms sem J e telemetria T a 10 Hz.
-A cinemática é aproximada (MeArm: braço e antebraço de ~80 mm, antebraço
-com ângulo absoluto por causa do paralelogramo, garra sempre nivelada).
+    adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878
 """
 
 import argparse
 import json
 import os
-import select
 import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "SNES-ARM-SIM 1.0"
-
 # Mesmos números de braco/firmware_esp32/SNES_ARM_ESP32/ArmConfig.h
 JOINTS = [
-    {"name": "base",     "min": 10.0, "max": 170.0, "home": 90.0},
-    {"name": "ombro",    "min": 45.0, "max": 135.0, "home": 90.0},
-    {"name": "cotovelo", "min": 45.0, "max": 135.0, "home": 90.0},
-    {"name": "garra",    "min": 30.0, "max": 90.0,  "home": 60.0},
+    {"name": "base",     "min": 0,  "max": 180, "initial": 90},
+    {"name": "ombro",    "min": 20, "max": 160, "initial": 90},
+    {"name": "cotovelo", "min": 20, "max": 160, "initial": 90},
+    {"name": "garra",    "min": 20, "max": 100, "initial": 60},
 ]
-WATCHDOG_S = 0.300
-TELEMETRY_S = 0.100
-UPDATE_S = 0.005
-MAX_SPEED = 180.0
-HOME_SPEED = 60.0
+INTERVALO_S = 0.025
+TIMEOUT_SERIAL_S = 0.250
+
+# Bits do registrador SNES (ativo em LOW) — ArmMapping.h
+BITS = {"B": 0, "Y": 1, "SELECT": 2, "START": 3, "UP": 4, "DOWN": 5, "LEFT": 6, "RIGHT": 7,
+        "A": 8, "X": 9, "L": 10, "R": 11}
+SYNC1, SYNC2, VERSION, CONTROLLER_STATE = 0x53, 0x4E, 0x01, 0x01
 
 
-def clamp(value, lo, hi):
-    return max(lo, min(hi, value))
+def crc8(data):
+    crc = 0
+    for x in data:
+        crc ^= x
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x07) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
+    return crc
+
+
+def pressed(state, name):
+    return (state >> BITS[name]) & 1 == 0
+
+
+def axis(plus, minus):
+    return 0 if plus == minus else (1 if plus else -1)
+
+
+def directions(state):
+    """ArmMapping::fromState: tabela da wiki 'Braço Robótico ‐ Semana 09\\09‐21\\10'."""
+    if pressed(state, "START"):
+        return [0, 0, 0, 0]
+    return [axis(pressed(state, "RIGHT"), pressed(state, "LEFT")),
+            axis(pressed(state, "UP"), pressed(state, "DOWN")),
+            axis(pressed(state, "B"), pressed(state, "Y")),
+            axis(pressed(state, "A"), pressed(state, "X"))]
+
+
+class FrameDecoder:
+    """Mesma lógica do Protocol::FrameDecoder do firmware: acha o SYNC e confere versão, tipo e CRC."""
+
+    def __init__(self):
+        self.buf = bytearray()
+        self.frames = self.errors = self.discarded = 0
+
+    def push(self, data):
+        out = []
+        for b in data:
+            self.buf.append(b)
+            while True:
+                if self.buf and self.buf[0] != SYNC1 or len(self.buf) >= 2 and self.buf[1] != SYNC2:
+                    del self.buf[0]
+                    self.discarded += 1
+                    continue
+                if len(self.buf) < 8:
+                    break
+                f = self.buf[:8]
+                if f[2] != VERSION or not 0x01 <= f[3] <= 0x0A or crc8(f[:7]) != f[7]:
+                    self.errors += 1
+                    del self.buf[0]
+                    continue
+                out.append((f[3], f[4], f[5] | (f[6] << 8)))
+                del self.buf[:8]
+                self.frames += 1
+                break
+        return out
 
 
 class ArmEmulator:
-    """Mesma máquina de estados do SNES_ARM_ESP32.ino."""
-
     def __init__(self):
         self.lock = threading.Lock()
-        self.current = [j["home"] for j in JOINTS]
-        self.target = list(self.current)
-        self.streaming = False
-        self.homing = False
-        self.last_frame = 0.0
+        self.angles = [j["initial"] for j in JOINTS]
+        self.state = 0xFFFF
+        self.dirs = [0, 0, 0, 0]
+        self.last_rx = 0.0
         self.connected = False
         self.client = ""
-        self.note = ""
-        self.page = 1
-        self.frames = 0
+        self.decoder = FrameDecoder()
         self.frame_times = []
+        self.last_seq = None
         self.watchdog_events = 0
         self.log = []
 
     def add_log(self, text):
-        stamp = time.strftime("%H:%M:%S")
-        self.log.append(f"{stamp} {text}")
+        self.log.append(time.strftime("%H:%M:%S ") + text)
         del self.log[:-40]
         print(f"[SIM] {text}", flush=True)
 
-    def hold_all(self):
-        self.target = list(self.current)
+    def apply_state(self, state):
+        state |= 0xF000
+        if state == self.state:
+            return
+        self.state = state
+        self.dirs = directions(state)
+        names = " ".join(n for n in BITS if pressed(state, n)) or "(nada)"
+        self.add_log(f"estado 0x{state:04X} {names} -> base={self.dirs[0]:+d} ombro={self.dirs[1]:+d} "
+                     f"cotovelo={self.dirs[2]:+d} garra={self.dirs[3]:+d}")
 
-    def handle_line(self, line):
-        """Recebe uma linha da bridge e devolve a lista de respostas."""
-        line = line.strip()
-        if not line:
-            return []
-
+    def feed(self, data):
         with self.lock:
             now = time.monotonic()
-            cmd = line[0]
+            for ftype, seq, state in self.decoder.push(data):
+                if ftype != CONTROLLER_STATE:
+                    continue
+                self.last_rx = now
+                self.last_seq = seq
+                self.frame_times = [t for t in self.frame_times if now - t < 1.0] + [now]
+                self.apply_state(state)
 
-            if cmd == "#":
-                self.note = line[1:].strip()
-                if self.note.startswith("PAGINA"):
-                    try:
-                        self.page = int(self.note.split()[1])
-                    except (IndexError, ValueError):
-                        pass
-                self.add_log(f"nota da bridge: {self.note}")
-                return []
-
-            if cmd == "J":
-                try:
-                    values = [float(v) for v in line[1:].split()]
-                except ValueError:
-                    values = []
-                if len(values) != 4:
-                    return ["ERR formato: J base ombro cotovelo garra"]
-                for i, deg in enumerate(values):
-                    self.target[i] = clamp(deg, JOINTS[i]["min"], JOINTS[i]["max"])
-                if not self.streaming:
-                    self.add_log("recebendo quadros J (watchdog armado)")
-                self.last_frame = now
-                self.streaming = True
-                self.homing = False
-                self.frames += 1
-                self.frame_times.append(now)
-                self.frame_times = [t for t in self.frame_times if now - t < 1.0]
-                return []
-
-            if cmd == "G":
-                try:
-                    pct = float(line[1:])
-                except ValueError:
-                    return ["ERR formato: G 0-100"]
-                if not 0 <= pct <= 100:
-                    return ["ERR formato: G 0-100"]
-                g = JOINTS[3]
-                self.target[3] = g["min"] + pct / 100.0 * (g["max"] - g["min"])
-                self.last_frame = now
-                return ["OK"]
-
-            if cmd == "H":
-                self.homing = True
-                self.streaming = False
-                self.target = [j["home"] for j in JOINTS]
-                self.add_log("home")
-                return ["OK"]
-
-            if cmd == "S":
-                self.hold_all()
-                self.streaming = False
-                self.homing = False
-                self.add_log("stop")
-                return ["OK"]
-
-            if cmd == "P":
-                return ["OK"]
-
-            if cmd == "I":
-                parts = []
-                for j in JOINTS:
-                    parts += [f"{j['min']:.0f}", f"{j['max']:.0f}", f"{j['home']:.0f}"]
-                return ["I " + " ".join(parts)]
-
-            return [f"ERR comando desconhecido: {cmd}"]
-
-    def step(self, dt):
+    def step(self):
         with self.lock:
-            now = time.monotonic()
-            if self.streaming and now - self.last_frame > WATCHDOG_S:
-                self.streaming = False
-                self.hold_all()
+            if self.state != 0xFFFF and time.monotonic() - self.last_rx > TIMEOUT_SERIAL_S:
                 self.watchdog_events += 1
-                self.add_log("WATCHDOG: 300 ms sem quadro J, servos parados")
-
-            speed = HOME_SPEED if self.homing else MAX_SPEED
-            all_home = True
-            for i in range(4):
-                err = self.target[i] - self.current[i]
-                stepv = speed * dt
-                self.current[i] = self.target[i] if abs(err) <= stepv else self.current[i] + (stepv if err > 0 else -stepv)
-                all_home &= self.current[i] == self.target[i]
-            if self.homing and all_home:
-                self.homing = False
-
-    def telemetry(self):
-        with self.lock:
-            return "T " + " ".join(f"{a:.0f}" for a in self.current)
+                self.add_log("250 ms sem quadro: direções zeradas")
+                self.apply_state(0xFFFF)
+            for i, j in enumerate(JOINTS):
+                self.angles[i] = max(j["min"], min(j["max"], self.angles[i] + self.dirs[i]))
 
     def snapshot(self):
         with self.lock:
-            return {
-                "current": self.current,
-                "target": self.target,
-                "joints": JOINTS,
-                "streaming": self.streaming,
-                "homing": self.homing,
-                "connected": self.connected,
-                "client": self.client,
-                "note": self.note,
-                "page": self.page,
-                "frames": self.frames,
-                "rate_hz": len(self.frame_times),
-                "watchdog_events": self.watchdog_events,
-                "log": self.log[-12:],
-            }
-
-
-def serve_stream(arm, read_fn, write_fn, poll_fd, name, wait_for_client=False):
-    """Laço de uma conexão: lê linhas, responde e manda T a 10 Hz.
-
-    wait_for_client (serial falsa): numa pty não existe "accept", então até
-    chegar o primeiro byte o simulador só repete o READY a cada 1 s, como um
-    ESP32 que acabou de ligar e ainda não tem ninguém escutando.
-    """
-    def mark_connected():
-        with arm.lock:
-            arm.connected = True
-            arm.client = name
-        arm.add_log(f"bridge conectada ({name})")
-
-    if not wait_for_client:
-        mark_connected()
-    write_fn(f"READY {VERSION}\n")
-
-    buf = ""
-    talking = not wait_for_client
-    last_tel = last_ready = time.monotonic()
-    try:
-        while True:
-            ready, _, _ = select.select([poll_fd], [], [], 0.02)
-            if ready:
-                data = read_fn()
-                if not data:
-                    break
-                if not talking:
-                    talking = True
-                    mark_connected()
-                buf += data
-                while "\n" in buf:
-                    line, buf = buf.split("\n", 1)
-                    for reply in arm.handle_line(line):
-                        write_fn(reply + "\n")
             now = time.monotonic()
-            if not talking:
-                if now - last_ready >= 1.0:
-                    last_ready = now
-                    write_fn(f"READY {VERSION}\n")
-            elif now - last_tel >= TELEMETRY_S:
-                last_tel = now
-                write_fn(arm.telemetry() + "\n")
-    except OSError as exc:
-        arm.add_log(f"conexão caiu: {exc}")
-    finally:
-        if talking:
-            with arm.lock:
-                arm.connected = False
-            arm.add_log(f"bridge desconectada ({name})")
+            return {
+                "angles": self.angles, "joints": JOINTS, "state": self.state, "dirs": self.dirs,
+                "pressed": [n for n in BITS if pressed(self.state, n)],
+                "connected": self.connected, "client": self.client,
+                "rate_hz": len([t for t in self.frame_times if now - t < 1.0]),
+                "frames": self.decoder.frames, "errors": self.decoder.errors, "discarded": self.decoder.discarded,
+                "last_seq": self.last_seq, "watchdog_events": self.watchdog_events, "log": self.log[-14:],
+            }
 
 
 def tcp_server(arm, host, port):
@@ -250,54 +162,39 @@ def tcp_server(arm, host, port):
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((host, port))
     srv.listen(1)
-    print(f"[SIM] protocolo do braço em tcp://{host}:{port}", flush=True)
+    print(f"[SIM] braço escutando em tcp://{host}:{port}", flush=True)
     while True:
         conn, addr = srv.accept()
-        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        with arm.lock:
+            arm.connected, arm.client = True, f"{addr[0]}:{addr[1]}"
+        arm.add_log(f"snes_arm_daemon conectado ({addr[0]}:{addr[1]})")
         with conn:
-            serve_stream(
-                arm,
-                lambda: conn.recv(512).decode(errors="replace"),
-                lambda text: conn.sendall(text.encode()),
-                conn,
-                f"tcp {addr[0]}:{addr[1]}",
-            )
+            while True:
+                try:
+                    data = conn.recv(512)
+                except OSError:
+                    data = b""
+                if not data:
+                    break
+                arm.feed(data)  # nunca responde: o braço é só ouvinte
+        with arm.lock:
+            arm.connected = False
+        arm.add_log("snes_arm_daemon desconectado")
 
 
-def pty_server(arm):
-    import pty
-    import tty
-
-    master, slave = pty.openpty()
-    tty.setraw(slave)
-    path = os.ttyname(slave)
-    print(f"[SIM] serial falsa em {path}  (bridge do Mac: --backend serial --device {path})", flush=True)
+def ticker(arm):
+    nxt = time.monotonic()
     while True:
-        serve_stream(
-            arm,
-            lambda: os.read(master, 512).decode(errors="replace"),
-            lambda text: os.write(master, text.encode()),
-            master,
-            f"pty {path}",
-            wait_for_client=True,
-        )
-
-
-def physics(arm):
-    last = time.monotonic()
-    while True:
-        time.sleep(UPDATE_S)
-        now = time.monotonic()
-        arm.step(now - last)
-        last = now
+        nxt += INTERVALO_S
+        time.sleep(max(0.0, nxt - time.monotonic()))
+        arm.step()
 
 
 def make_http_handler(arm, page_path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path.startswith("/state"):
-                body = json.dumps(arm.snapshot()).encode()
-                ctype = "application/json"
+                body, ctype = json.dumps(arm.snapshot()).encode(), "application/json"
             elif self.path in ("/", "/index.html"):
                 with open(page_path, "rb") as f:  # relido a cada acesso: editar o HTML não exige reiniciar
                     body = f.read()
@@ -319,20 +216,16 @@ def make_http_handler(arm, page_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Simulador do braço MeArm (protocolo SNES_ARM_ESP32)")
+    parser = argparse.ArgumentParser(description="Simulador do braço (firmware SNES_ARM_ESP32)")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=7878, help="porta do protocolo (adb reverse)")
+    parser.add_argument("--port", type=int, default=7878, help="porta que o snes_arm_daemon usa (adb reverse)")
     parser.add_argument("--http-port", type=int, default=8787, help="porta do painel web")
-    parser.add_argument("--pty", action="store_true", help="cria também uma serial falsa")
     args = parser.parse_args()
 
     page_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "painel.html")
-
     arm = ArmEmulator()
-    threading.Thread(target=physics, args=(arm,), daemon=True).start()
+    threading.Thread(target=ticker, args=(arm,), daemon=True).start()
     threading.Thread(target=tcp_server, args=(arm, args.host, args.port), daemon=True).start()
-    if args.pty:
-        threading.Thread(target=pty_server, args=(arm,), daemon=True).start()
 
     http = ThreadingHTTPServer((args.host, args.http_port), make_http_handler(arm, page_path))
     print(f"[SIM] painel em http://{args.host}:{args.http_port}", flush=True)

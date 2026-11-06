@@ -1,0 +1,10 @@
+# Inicia o driver do braço depois do boot e o reinicia se cair.
+# Com os dois ESP32 na USB, troque "auto" pela porta física do braço (ex.: usb:1-1.3).
+service snes_arm_daemon /vendor/bin/snes_arm_daemon --device auto
+    class late_start
+    user root
+    group root input
+    disabled
+
+on property:sys.boot_completed=1
+    start snes_arm_daemon

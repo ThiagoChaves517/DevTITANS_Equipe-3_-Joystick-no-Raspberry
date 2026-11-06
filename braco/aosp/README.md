@@ -1,16 +1,17 @@
-# Opcional: integrar a bridge no AOSP (GloDroid)
+# Opcional: integrar o snes_arm_daemon no AOSP (GloDroid)
 
-**Não é necessário para testar:** tudo funciona rodando de `/data/local/tmp` com `adb root`.
-Use isto quando quiserem que a bridge inicie sozinha no boot. Exige rebuild do AOSP, que roda no
+**Não é necessário para testar:** tudo funciona rodando de `/data/local/tmp` com `adb root`
+(`braco/scripts/deploy.sh`). Use isto quando quiserem que o driver do braço inicie sozinho no boot,
+junto com o serviço `init` que o Raphael prevê para o `snes_input_daemon` (`docs/OPERACAO.md` da branch driver). Exige rebuild do AOSP, que roda no
 computador de build da equipe.
 
 ## 1. Binário + serviço de init
 
 1. Copie `braco/` para dentro da árvore, por exemplo `aosptree/vendor/devtitans/braco/`.
-   O `braco/Android.bp` define `snes_arm_bridge` e `snes_fake_pad`, e o serviço `aosp/snes_arm_bridge.rc`.
+   O `braco/Android.bp` define o `snes_arm_daemon` e o serviço `aosp/snes_arm_daemon.rc`.
 2. Adicione ao `device.mk` do `gd_rpi4`:
    ```make
-   PRODUCT_PACKAGES += snes_arm_bridge snes_fake_pad
+   PRODUCT_PACKAGES += snes_arm_daemon
    ```
 3. Rebuild e grave a imagem (wiki "Raspberry ‐ Semana 31\08 ‐ 08\09" e "Raspberry ‐ Semanas 09\09 ‐ 21\09").
 

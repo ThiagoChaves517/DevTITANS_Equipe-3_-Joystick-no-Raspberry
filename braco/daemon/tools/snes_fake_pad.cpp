@@ -1,9 +1,13 @@
 /*
- * snes_fake_pad — controle SNES falso para testar a bridge sem o joystick.
+ * snes_fake_pad — controle SNES falso para testar o snes_arm_daemon sem o joystick
+ * e sem o snes_input_daemon.
  *
- * Cria pelo /dev/uinput um gamepad com o MESMO nome e as mesmas capacidades
- * do snes_uinput_daemon (branch driver): BTN_A/B/X/Y/TL/TR/SELECT/START +
- * ABS_HAT0X/Y. Para a bridge (e para o Android) ele é igual ao real.
+ * Cria pelo /dev/uinput um gamepad com o MESMO nome e as mesmas capacidades do
+ * snes_input_daemon (branch driver): BTN_A/B/X/Y/TL/TR/SELECT/START, BTN_0/BTN_1
+ * (garra) e ABS_HAT0X/Y. Para o snes_arm_daemon (e para o Android) ele é igual ao real.
+ *
+ * Com o daemon do Raphael rodando, prefira o ipc_probe dele: aí o teste passa pelo
+ * caminho completo (socket -> snes_input_daemon -> uinput).
  *
  * Comandos pelo stdin, um por linha:
  *   press A | release A          aperta / solta (A B X Y L R SELECT START)
@@ -15,7 +19,7 @@
  *   quit
  *
  * Exemplo:  adb shell /data/local/tmp/snes_fake_pad < roteiro.txt
- * Precisa de root (adb root): /dev/uinput é 0660 uhid.
+ * Precisa do grupo uhid ou de root (adb root): /dev/uinput é 0660 uhid.
  */
 
 #include <errno.h>
@@ -77,7 +81,7 @@ static void set_button(int index, int pressed)
 
 static void sleep_ms(long ms)
 {
-    usleep((useconds_t)ms * 1000u);
+    usleep(useconds_t(ms) * 1000u);
 }
 
 /* Mesmo tratamento do snes_uinput_daemon: bits 4-7 viram o D-pad. */
@@ -111,6 +115,9 @@ static int create_device(const char *name)
     for (size_t i = 0; i < BUTTON_COUNT; ++i)
         ioctl(fd, UI_SET_KEYBIT, buttons[i].code);
 
+    ioctl(fd, UI_SET_KEYBIT, BTN_0); /* garra abrir/fechar, como no snes_input_daemon */
+    ioctl(fd, UI_SET_KEYBIT, BTN_1);
+
     ioctl(fd, UI_SET_EVBIT, EV_ABS);
 
     const int axes[] = { ABS_HAT0X, ABS_HAT0Y };
@@ -131,8 +138,8 @@ static int create_device(const char *name)
 
     memset(&setup, 0, sizeof(setup));
     setup.id.bustype = BUS_VIRTUAL;
-    setup.id.vendor = 0x1234;
-    setup.id.product = 0x0002; /* o daemon real usa 0x0001 */
+    setup.id.vendor = 0x1209;
+    setup.id.product = 0x534F; /* o snes_input_daemon usa 1209:534E */
     setup.id.version = 1;
     strncpy(setup.name, name, UINPUT_MAX_NAME_SIZE - 1);
 
