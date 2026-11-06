@@ -15,6 +15,9 @@
 local.properties
 /daemon/build
 
+# firmware: READMEs locais do Raphael (na branch firmware a regra é global)
+SNES_BT_Controller/README*.md
+
 # braco/ (integração Raspberry ↔ braço)
 braco/daemon/build/
 braco/firmware_esp32/SNES_ARM_ESP32/build/
