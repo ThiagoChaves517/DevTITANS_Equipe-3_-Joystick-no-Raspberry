@@ -18,12 +18,6 @@ android {
 
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"
-
-        externalNativeBuild {
-            cmake {
-                cppFlags("")
-            }
-        }
     }
 
     buildTypes {
@@ -43,12 +37,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-        }
-    }
 }
 
 dependencies {
@@ -59,6 +47,4 @@ dependencies {
 
     testImplementation(libs.junit)
 
-    androidTestImplementation(libs.ext.junit)
-    androidTestImplementation(libs.espresso.core)
 }
