@@ -23,11 +23,11 @@ flowchart LR
 | Pasta | O que é |
 |---|---|
 | `daemon/` | **`snes_arm_daemon`** (C++17, NDK), no mesmo molde do `snes_input_daemon`. Também traz `frame_sniffer` (ESP32 falso numa pty) e `snes_fake_pad` (gamepad falso) |
-| `firmware_esp32/SNES_ARM_ESP32/` | Firmware do ESP32 do braço, que segue a wiki e o fluxograma do William. `ArmMapping.h` (tabela) e `FrameProtocol.*` (quadro) são C++ puro, compartilhados com o daemon e os testes |
+| `firmware_esp32/SNES_ARM_ESP32/` | Firmware do ESP32 do braço, com os blocos e os nomes do fluxograma do William (`angBase`, `dirBase`, `MIN_BASE`, `INTERVALO_MS`…). `ArmMapping.h` (tabela) e `FrameProtocol.*` (quadro) são C++ puro, compartilhados com o daemon e os testes |
 | `firmware_esp32/host_test/` | Roda o firmware no computador, com um `Arduino.h` simulado |
 | `simulador/` | `arm_sim.py`: faz o papel do ESP32 (mesmo protocolo e mesma tabela) e mostra o braço num painel web |
 | `scripts/` | `deploy.sh` (enviar e iniciar na placa) e `device_test.py` (teste integrado com o daemon real do Raphael) |
-| `docs/` | [DECISOES.md](docs/DECISOES.md) (ADRs e divergências), [protocolo_serial.md](docs/protocolo_serial.md) e [OPERACAO.md](docs/OPERACAO.md) |
+| `docs/` | [CONFORMIDADE_WILLIAM.md](docs/CONFORMIDADE_WILLIAM.md) (item a item da wiki do William), [DECISOES.md](docs/DECISOES.md) (ADRs e divergências), [protocolo_serial.md](docs/protocolo_serial.md) e [OPERACAO.md](docs/OPERACAO.md) |
 | `aosp/` + `Android.bp` | Opcional: iniciar o daemon no boot (rebuild do AOSP) |
 
 ## O que vai na serial
@@ -77,7 +77,8 @@ A cada 25 ms, cada servo anda 1° na sua direção, dentro dos limites do `ArmCo
 | `daemon/test.sh`: quadro, vetor de contrato, decodificador com ruído aleatório, eventos → 16 bits, tabela do William, política de envio | Mac | ✅ 41 verificações |
 | **Contrato com o driver do Raphael:** as 4096 combinações publicadas pelo `ControllerDevice` dele voltam iguais pelo `SnesRegister` | Mac | ✅ e uma mutação proposital é detectada |
 | Testes do `snes_input_daemon` (dele) | Mac | ✅ 56 verificações |
-| Firmware do braço executado no computador: mapeamento, 1°/25 ms, watchdog de 250 ms, START, CRC errado + ressincronização, pulsos | Mac | ✅ |
+| Firmware do braço compilado com `-Werror` e executado no computador: mapeamento, 1°/25 ms, watchdog de 250 ms, Start, CRC errado + ressincronização, pulsos | Mac | ✅ |
+| Conformidade item a item com a wiki do William ([docs/CONFORMIDADE_WILLIAM.md](docs/CONFORMIDADE_WILLIAM.md)) | revisão | ✅ com 2 ressalvas (Start, GPIO12) e 2 desvios justificados (16 bits em vez de linha de texto; pinos do fluxograma) |
 | Simulador com quadros (keepalive, watchdog, CRC errado) e painel | Mac | ✅ |
 | `snes_arm_daemon`, `frame_sniffer`, `snes_fake_pad` compilados para arm64 (`-Werror`) | NDK 27 | ✅ |
 | `scripts/device_test.py`: ipc_probe → snes_input_daemon → **snes_arm_daemon** → serial → ESP32 falso | Raspberry | ⏳ placa desconectada nesta sessão |

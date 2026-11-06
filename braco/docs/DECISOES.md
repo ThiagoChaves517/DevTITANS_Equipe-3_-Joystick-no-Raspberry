@@ -59,6 +59,12 @@ reiniciar a placa. Um quadro mandado durante o boot se perde. Por isso o primeir
 na tabela do William a garra é A/X. Se a equipe quiser a garra por inclinação, o caminho é mandar também o
 quadro `GRIP_STATE` (tipo 0x06), que o decodificador do ESP32 já aceita como válido.
 
+**ADR-010: O firmware usa os nomes e os blocos do fluxograma do William.** Ficam as variáveis `angBase…`,
+`dirBase…`, `MIN_xxx`/`MAX_xxx`, `ultimoMovimento`, `INTERVALO_MS`, e as funções `lerSerial()` →
+`interpretaEstado()` → `atualizaAngulo()`, na ordem do fluxograma. Quem conhece o desenho reconhece o código
+sem precisar de tradução. Só a leitura muda: entra o quadro com os 16 bits no lugar da linha de texto. A
+checagem item a item está em [CONFORMIDADE_WILLIAM.md](CONFORMIDADE_WILLIAM.md).
+
 ## Divergências encontradas na documentação do time
 
 | Onde | O que diz | O que foi seguido |

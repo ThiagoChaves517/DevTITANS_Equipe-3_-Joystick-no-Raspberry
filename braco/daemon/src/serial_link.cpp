@@ -91,6 +91,10 @@ bool SerialLink::resolve(std::string& path, bool& is_tcp) {
         problem = "nenhuma serial na porta USB " + port;
     } else if (all.size() == 1) {
         path = all[0].tty;
+        // O braço não responde, então "auto" não tem como saber se esta é mesmo a porta dele.
+        LOGW("--device auto: usando a única serial USB, %s (usb:%s %s). Se o ESP32 do braço estiver "
+             "desligado e esta for a do joystick, ela será reiniciada: com os dois ESP32 na USB, fixe --device usb:<porta>",
+             all[0].tty.c_str(), all[0].usb_port.c_str(), all[0].vid_pid.c_str());
         return true;
     } else if (all.empty()) {
         problem = "nenhuma serial USB (ttyUSB*/ttyACM*) conectada";

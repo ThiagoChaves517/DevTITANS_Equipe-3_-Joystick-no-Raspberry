@@ -10,7 +10,7 @@ mkdir -p out
 # O .ino é C++ comum; o Arduino só adiciona protótipos (aqui as funções já vêm antes do uso).
 cp "$SKETCH/SNES_ARM_ESP32.ino" out/sketch.cpp
 
-c++ -std=c++17 -O1 -Wall -Wextra -I. -I"$SKETCH" \
-    out/sketch.cpp "$SKETCH/ServoJoint.cpp" "$SKETCH/FrameProtocol.cpp" host_main.cpp -o out/firmware_host
+c++ -std=c++17 -O1 -Wall -Wextra -Werror -I. -I"$SKETCH" \
+    out/sketch.cpp "$SKETCH/Servos.cpp" "$SKETCH/FrameProtocol.cpp" host_main.cpp -o out/firmware_host
 
 exec ./out/firmware_host

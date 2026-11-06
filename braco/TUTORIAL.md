@@ -36,7 +36,7 @@ braco/daemon/test.sh
 
 1. Ligue os servos: base no **GPIO25**, ombro no **26**, cotovelo no **27** e garra no **12**. O vermelho vai no +5 V da fonte, e o marrom no GND da fonte e do ESP32.
 2. Na Arduino IDE, abra `braco/firmware_esp32/SNES_ARM_ESP32/SNES_ARM_ESP32.ino`, escolha a placa **ESP32 Dev Module** e grave.
-3. No Monitor Serial (115200), deve aparecer `[ARM] SNES-ARM-ESP32 2.0: aguardando quadros da Raspberry` e os servos vão para 90/90/90/60.
+3. No Monitor Serial (115200), deve aparecer `[ARM] SNES-ARM-ESP32 2.1: aguardando quadros da Raspberry` e os servos vão para 90/90/90/60.
 4. **Calibre** os limites de `ArmConfig.h` com o braço montado. Os valores atuais são o exemplo do fluxograma do William.
 5. Ligue o ESP32 numa USB-A da Raspberry.
 
@@ -56,7 +56,9 @@ braco/scripts/deploy.sh
 
 No log, o esperado é `controle encontrado`, depois `conectado ao braço em /dev/ttyUSB0`, e por fim `braço pronto`.
 
-**4.3. Se o ESP32 do joystick também estiver na USB**, escolha a porta do braço pelo número da porta física:
+**4.3. Se o ESP32 do joystick também estiver na USB** (como no diagrama do William), **sempre** fixe a porta do braço pelo número da porta física. O `auto` só funciona com uma serial; se o braço estiver desligado, ele pegaria a do joystick e a reiniciaria.
+
+Veja as portas e, depois, suba fixando a do braço:
 
 ```bash
 adb shell /data/local/tmp/snes_arm_daemon --list
@@ -127,7 +129,7 @@ Depois digite, por exemplo, `state FEFF` (A pressionado), `@500` e `state FFFF`.
 | `abrir /dev/ttyUSB0: Permission denied` | Rode `adb root` antes |
 | Servo não mexe, mas o log está ok | Rode com `--echo` para ver o `[ARM]` do ESP32. Confira a fonte 5 V, o GND comum e se a junta já está no limite |
 | ESP32 não liga com a garra conectada | GPIO12 é *strapping*: solte o fio da garra no boot |
-| Junta anda ao contrário | Em `ArmConfig.h`, mude `inverted` da junta para `true` |
+| Junta anda ao contrário | Em `ArmConfig.h`, mude `INVERTE_<JUNTA>` (ex.: `INVERTE_BASE`) para `true` |
 
 ## 8. Limpar depois
 
