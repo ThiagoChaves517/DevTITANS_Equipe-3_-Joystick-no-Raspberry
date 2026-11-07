@@ -207,7 +207,7 @@ adb shell "cd /data/local/tmp/armtest && (./snes_input_daemon --socket demo --na
 
 Isso faz ↑, B, ← e A, 1,5 s cada.
 
-## 7. Resultados de 06/11 (Raspberry real, sem o braço)
+## 7. Resultados de 06/11 (Raspberry real)
 
 | Teste | Resultado |
 |---|---|
@@ -217,7 +217,80 @@ Isso faz ↑, B, ← e A, 1,5 s cada.
 | Serial caiu → driver larga o link sem gastar CPU (antes ia a 110%) | ✅ |
 | **Joystick real** (Bluetooth) → app → driver do Raphael → driver do braço → ESP32 falso: B, A, X e ↓ ← chegaram como `97`, `352`, `608`... (461 linhas, 0 inválidas, intervalo mínimo de 28 ms) | ✅ |
 | `deploy.sh` no Windows; driver instalado e rodando na Raspberry (0,8% de CPU) | ✅ |
-| **Seu ESP32 com os servos** | ⏳ falta ligar na USB da Raspberry |
+| Simulador no navegador com o seu firmware emulado, alimentado pelo joystick real (seção 6.1) | ✅ |
+| **Joystick real → Raspberry → USB → seu ESP32 com o `firmwareBraco.ino`** (seção 7.1) | ✅ B, Y, A, X e ← respondidos pelo ESP |
+| Servos se mexendo no braço montado | ⏳ não verificado: não dava para ver o braço daqui |
+
+### 7.1. Teste com o seu ESP32 real
+
+ESP32 DevKit com o seu `firmwareBraco.ino`, ligado numa USB-A da Raspberry:
+
+- A Raspberry reconheceu a placa: `CP2102 USB to UART Bridge Controller` (10c4:ea60), porta física
+  **`usb:1-1.4`**, `/dev/ttyUSB0`.
+- Driver iniciado com:
+
+```bash
+adb shell "nohup /data/local/tmp/snes_arm_daemon --device usb:1-1.4 --verbose --echo > /data/local/tmp/snes_arm_daemon.log 2>&1 &"
+```
+
+Trecho do `adb logcat -s SnesBtReceiver SnesDaemon SnesArmDaemon` (A apertado no joystick):
+
+```
+12:22:28.767  SnesBtReceiver: estado 0xFEFF [A]         ← app recebeu o A do joystick (Bluetooth)
+12:22:28.768  SnesArmDaemon:  estado 0xFEFF (evento)     ← driver do braço leu o gamepad (1 ms depois)
+12:22:28.771  SnesArmDaemon:  esp32: BTN_A               ← seu firmware executou pressButton(BTN_A)
+12:22:28.821  SnesArmDaemon:  esp32: BTN_A               ← ...e repete enquanto A está apertado
+12:22:28.847  SnesArmDaemon:  esp32: BTN_A
+```
+
+- Em poucos segundos de teste, o ESP respondeu 148 vezes: `BTN_B` 38, `BTN_Y` 32, `BTN_A` 32, `BTN_X` 46.
+- As respostas vêm a cada 25–50 ms, no ritmo do seu `loop()`, ou seja, **nenhuma linha fica acumulada**.
+- Do joystick até o ESP leva ~4 ms.
+- **Não foi preciso mudar nada no seu firmware nem no driver.**
+
+O que aparece em cada log durante o teste:
+
+| Tag | Quem | O que mostra |
+|---|---|---|
+| `SnesBtReceiver` | app do Raphael | botões que chegaram do joystick (`grip=` é o acelerômetro, que o braço ignora) |
+| `SnesDaemon` | driver do Raphael | daemon subindo e o app conectando |
+| `SnesArmDaemon` | driver do braço | `estado 0x...` a cada mudança e, com `--echo`, o que o seu ESP imprime (`esp32: 256`, `esp32: BTN_A`) |
+
+Para ver ao vivo:
+
+```bash
+adb logcat -s SnesBtReceiver SnesDaemon SnesArmDaemon
+```
+
+Ou só o driver do braço:
+
+```bash
+adb shell tail -f /data/local/tmp/snes_arm_daemon.log
+```
+
+### 7.2. Depois de reiniciar a Raspberry
+
+Nada disso sobe sozinho no boot, porque os drivers rodam a partir de `/data/local/tmp`. Rode nesta ordem:
+
+```bash
+adb root
+```
+
+```bash
+adb shell "nohup /data/local/tmp/snes_input_daemon --allow-uid 10092 > /data/local/tmp/snes_input_daemon.log 2>&1 &"
+```
+
+```bash
+adb shell "nohup /data/local/tmp/snes_arm_daemon --device usb:1-1.4 --verbose --echo > /data/local/tmp/snes_arm_daemon.log 2>&1 &"
+```
+
+- **`adb root` reinicia o adb e derruba tudo o que foi iniciado por ele**, inclusive o driver do Raphael. Por isso
+  ele vem primeiro, e os drivers depois.
+- O `10092` é o uid do app neste Raspberry. Confira com `adb shell pm list packages -U com.snesbt.receiver`.
+- Se o ESP for para outra entrada USB, o número muda. Veja qual é com
+  `adb shell /data/local/tmp/snes_arm_daemon --list`.
+- O app se reconecta sozinho ao driver do Raphael (`RECOVERING -> READY`).
+- Um `Address already in use` no `SnesDaemon` só quer dizer que o driver do Raphael já estava rodando.
 
 ## 8. Pendências e avisos
 
@@ -228,13 +301,29 @@ Isso faz ↑, B, ← e A, 1,5 s cada.
 2. **Start não para o braço no seu firmware** (cai no `default`). Na sua wiki, Start seria "parar os movimentos".
    Como nada anda sem um botão de movimento, hoje não faz falta. Se quiser parar mesmo com outro botão apertado,
    trate o bit 3 no `lerComando()`.
-3. Seu firmware imprime `BTN_x` duas vezes por linha recebida (a cada 30 ms). Isso não atrapalha, mas deixa o
-   `--echo` barulhento.
+3. Seu firmware imprime duas linhas por linha recebida: o número (`100`, em hexadecimal) e o `BTN_x`. Isso não
+   atrapalha, mas deixa o `--echo` barulhento.
 4. A primeira linha do `.ino` tem um comentário colado: `//sudo chmod a+rw /dev/ttyUSB0sudo chmod ...`.
    É inofensivo.
 5. Os limites `MIN_*`/`MAX_*` precisam ser **calibrados no braço montado**, para o servo não forçar o acrílico.
 6. O `snes_input_daemon` instalado na placa é de 21/10. Na branch `driver` há uma versão de 05/11, com watchdog
    de 500 ms, que o Raphael ainda instala com o `scripts/deploy.sh` da raiz. O driver do braço funciona com as duas.
+
+### 8.1. Possíveis mudanças com o braço montado
+
+Nenhuma é obrigatória para funcionar. Elas aparecem conforme o comportamento do braço real:
+
+| Se acontecer | Onde mudar | O quê |
+|---|---|---|
+| Um servo anda no sentido contrário | seu `.ino`, `pressButton()` | trocar o `1`/`-1` daquele botão |
+| Servo força o acrílico no fim do curso | seu `.ino` | ajustar `MIN_*`/`MAX_*` da junta (calibração) |
+| Braço rápido ou lento demais | driver, sem mexer no firmware | `--keepalive-ms N` (mínimo 26; 30 = ~33°/s, 50 = 20°/s) |
+| Quer que Start pare tudo | seu `.ino`, `lerComando()` | se o bit 3 estiver em 1, não chamar `pressButton()` |
+| Ombro desce ou base gira sozinhos | joystick (Raphael) | calibrar o centro do analógico ou do acelerômetro (item 1 acima) |
+| Servos tremem ou o ESP reinicia ao mexer | alimentação | fonte de 5 V externa (3–5 A) com GND comum. A USB não aguenta 4 SG90 |
+| ESP em outra entrada USB ou ESP do joystick também na USB | comando do driver | `--device usb:<porta>` (veja com `--list`) |
+| Placa trocada por uma com CH340 | hardware | não funciona: o kernel da Raspberry só tem os drivers do CP2102, do PL2303 e da USB nativa (`ttyACM`) |
+| Quer subir o driver sozinho no boot | imagem do Android | `braco/aosp/` tem o `.rc` (precisa recompilar a imagem) |
 
 ## 9. Onde está cada coisa
 
