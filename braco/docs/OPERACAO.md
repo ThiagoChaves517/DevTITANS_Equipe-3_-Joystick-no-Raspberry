@@ -51,16 +51,18 @@ adb shell "nohup /data/local/tmp/snes_arm_daemon > /data/local/tmp/snes_arm_daem
 
 ```sh
 adb shell /data/local/tmp/snes_fake_pad                       # gamepad falso: press A / hold B 500 / hat x -1 / state FEFF
-adb shell /data/local/tmp/frame_sniffer                       # "ESP32 falso": imprime PTY /dev/pts/N
+adb shell /data/local/tmp/frame_sniffer --william             # "ESP32 falso" (firmware do William): imprime PTY /dev/pts/N
 adb shell /data/local/tmp/snes_arm_daemon --device /dev/pts/N --boot-wait-ms 0
 ```
 
-Simulador visual no computador:
+(Para o `SNES_ARM_ESP32`: `frame_sniffer` sem `--william` e o daemon com `--protocolo frame`.)
+
+Simulador visual no computador (simula o firmware do William; `--protocolo frame` simula o `SNES_ARM_ESP32`):
 
 ```sh
 python3 braco/simulador/arm_sim.py      # painel em http://127.0.0.1:8787
 adb reverse tcp:7878 tcp:7878
-adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878 --protocolo frame
+adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878
 ```
 
 ## Diagnóstico

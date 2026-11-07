@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 """
-Simulador do braço (4x SG90): faz o papel do ESP32 com o firmware SNES_ARM_ESP32.
+Simulador do braço (4x SG90): faz o papel do ESP32 do braço, com um dos dois firmwares.
 
-Recebe os quadros de 8 bytes que o snes_arm_daemon repassa (53 4E 01 01 seq p0 p1 CRC),
-aplica a MESMA tabela da wiki do William (ArmMapping.h) e o mesmo ritmo do firmware
-(1 grau a cada 25 ms, limites do fluxograma, direções zeradas após 250 ms sem quadro).
+--protocolo william (padrão): firmware do William (branch FirmwareBraco, firmwareBraco.ino).
+    Recebe as linhas de texto "<botões pressionados em decimal>\\n" e faz o mesmo que o loop() dele:
+    a cada 25 ms lê NO MÁXIMO uma linha (Serial.parseInt) e, para cada bit em 1, chama pressButton(),
+    que anda 1 grau com constrain() nos limites do .ino. Linhas que chegam mais rápido ficam na fila
+    (mostrada no painel), como no buffer da serial do ESP32.
+
+--protocolo frame: firmware SNES_ARM_ESP32. Recebe os quadros de 8 bytes (53 4E 01 01 seq p0 p1 CRC),
+    aplica ArmMapping.h e o mesmo ritmo (1 grau a cada 25 ms, direções zeradas após 250 ms sem quadro).
+
 Como o braço real, não responde nada.
 
 Uso (só biblioteca padrão do Python 3):
     python3 arm_sim.py                       # escuta em 127.0.0.1:7878, painel em http://127.0.0.1:8787
     adb reverse tcp:7878 tcp:7878
-    adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878 --protocolo frame
+    adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878
+  (com o firmware antigo: arm_sim.py --protocolo frame e o daemon com --protocolo frame)
 """
 
 import argparse
+import collections
 import json
 import os
 import socket
@@ -21,7 +29,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# Mesmos números de braco/firmware_esp32/SNES_ARM_ESP32/ArmConfig.h
+# Mesmos números de braco/firmware_esp32/SNES_ARM_ESP32/ArmConfig.h e do firmwareBraco.ino (William)
 JOINTS = [
     {"name": "base",     "min": 0,  "max": 180, "initial": 90},
     {"name": "ombro",    "min": 20, "max": 160, "initial": 90},
@@ -64,6 +72,20 @@ def directions(state):
             axis(pressed(state, "A"), pressed(state, "X"))]
 
 
+# firmwareBraco.ino, pressButton(): (servo, direção) de cada botão. Os outros bits caem no "default".
+WILLIAM_BUTTONS = {"B": (2, +1), "Y": (2, -1), "UP": (1, +1), "DOWN": (1, -1),
+                   "LEFT": (0, +1), "RIGHT": (0, -1), "A": (3, +1), "X": (3, -1)}
+WILLIAM_STOP_S = 0.060  # sem linha nova por 2 leituras: o painel mostra o braço parado
+
+
+def william_dirs(value):
+    d = [0, 0, 0, 0]
+    for name, (joint, step) in WILLIAM_BUTTONS.items():
+        if value >> BITS[name] & 1:
+            d[joint] += step
+    return d
+
+
 class FrameDecoder:
     """Mesma lógica do Protocol::FrameDecoder do firmware: acha o SYNC e confere versão, tipo e CRC."""
 
@@ -95,7 +117,13 @@ class FrameDecoder:
 
 
 class ArmEmulator:
-    def __init__(self):
+    def __init__(self, protocol="william"):
+        self.protocol = protocol
+        # --protocolo william
+        self.line_buf = bytearray()
+        self.queue = collections.deque()  # linhas recebidas e ainda não lidas pelo loop() (buffer da serial)
+        self.lines = self.bad_lines = self.max_backlog = 0
+        self.last_value = None
         self.lock = threading.Lock()
         self.angles = [j["initial"] for j in JOINTS]
         self.state = 0xFFFF
@@ -124,9 +152,55 @@ class ArmEmulator:
         self.add_log(f"estado 0x{state:04X} {names} -> base={self.dirs[0]:+d} ombro={self.dirs[1]:+d} "
                      f"cotovelo={self.dirs[2]:+d} garra={self.dirs[3]:+d}")
 
+    def feed_william(self, data, now):
+        for b in data:
+            if b != 0x0A:
+                if len(self.line_buf) < 32:
+                    self.line_buf.append(b)
+                continue
+            text = self.line_buf.decode("ascii", "replace").strip()
+            self.line_buf.clear()
+            if not text.isdigit() or int(text) > 0x0FFF:
+                self.bad_lines += 1
+                continue
+            self.lines += 1
+            self.last_rx = now
+            self.frame_times = [t for t in self.frame_times if now - t < 1.0] + [now]
+            self.queue.append(int(text))
+            self.max_backlog = max(self.max_backlog, len(self.queue))
+
+    def step_william(self):
+        """Uma volta do loop() do firmwareBraco.ino: lê no máximo 1 linha e anda 1 grau por botão."""
+        now = time.monotonic()
+        if not self.queue:
+            if self.state != 0xFFFF and now - self.last_rx > WILLIAM_STOP_S:
+                self.state, self.dirs = 0xFFFF, [0, 0, 0, 0]
+                self.add_log("linhas pararam: braço parado")
+                self.last_value = None
+            return
+        value = self.queue.popleft()
+        if value <= 0:  # if (snesBit > 0)
+            return
+        for bit in range(16):  # pressButton(i) para cada bit em 1, na ordem dos bits
+            name = next((n for n, b in BITS.items() if b == bit), None)
+            if value >> bit & 1 and name in WILLIAM_BUTTONS:
+                joint, step = WILLIAM_BUTTONS[name]
+                j = JOINTS[joint]
+                self.angles[joint] = max(j["min"], min(j["max"], self.angles[joint] + step))
+        self.state = (~value & 0x0FFF) | 0xF000
+        self.dirs = william_dirs(value)
+        if value != self.last_value:
+            names = " ".join(n for n in BITS if value >> BITS[n] & 1)
+            self.add_log(f"linha {value} = {names} -> base={self.dirs[0]:+d} ombro={self.dirs[1]:+d} "
+                         f"cotovelo={self.dirs[2]:+d} garra={self.dirs[3]:+d}")
+            self.last_value = value
+
     def feed(self, data):
         with self.lock:
             now = time.monotonic()
+            if self.protocol == "william":
+                self.feed_william(data, now)
+                return
             for ftype, seq, state in self.decoder.push(data):
                 if ftype != CONTROLLER_STATE:
                     continue
@@ -137,6 +211,9 @@ class ArmEmulator:
 
     def step(self):
         with self.lock:
+            if self.protocol == "william":
+                self.step_william()
+                return
             if self.state != 0xFFFF and time.monotonic() - self.last_rx > TIMEOUT_SERIAL_S:
                 self.watchdog_events += 1
                 self.add_log("250 ms sem quadro: direções zeradas")
@@ -147,13 +224,19 @@ class ArmEmulator:
     def snapshot(self):
         with self.lock:
             now = time.monotonic()
+            william = self.protocol == "william"
             return {
+                "protocol": self.protocol,
                 "angles": self.angles, "joints": JOINTS, "state": self.state, "dirs": self.dirs,
                 "pressed": [n for n in BITS if pressed(self.state, n)],
                 "connected": self.connected, "client": self.client,
                 "rate_hz": len([t for t in self.frame_times if now - t < 1.0]),
-                "frames": self.decoder.frames, "errors": self.decoder.errors, "discarded": self.decoder.discarded,
-                "last_seq": self.last_seq, "watchdog_events": self.watchdog_events, "log": self.log[-14:],
+                "frames": self.lines if william else self.decoder.frames,
+                "errors": self.bad_lines if william else self.decoder.errors,
+                "discarded": self.decoder.discarded,
+                "last_seq": self.last_value if william else self.last_seq,
+                "backlog": len(self.queue), "max_backlog": self.max_backlog,
+                "watchdog_events": self.watchdog_events, "log": self.log[-14:],
             }
 
 
@@ -216,14 +299,18 @@ def make_http_handler(arm, page_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Simulador do braço (firmware SNES_ARM_ESP32)")
+    parser = argparse.ArgumentParser(description="Simulador do braço (firmware do William ou SNES_ARM_ESP32)")
+    parser.add_argument("--protocolo", choices=["william", "frame"], default="william",
+                        help="william: firmwareBraco.ino (texto); frame: SNES_ARM_ESP32 (quadros de 8 bytes)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7878, help="porta que o snes_arm_daemon usa (adb reverse)")
     parser.add_argument("--http-port", type=int, default=8787, help="porta do painel web")
     args = parser.parse_args()
 
     page_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "painel.html")
-    arm = ArmEmulator()
+    arm = ArmEmulator(args.protocolo)
+    print(f"[SIM] firmware simulado: {'firmwareBraco.ino (William)' if args.protocolo == 'william' else 'SNES_ARM_ESP32'}",
+          flush=True)
     threading.Thread(target=ticker, args=(arm,), daemon=True).start()
     threading.Thread(target=tcp_server, args=(arm, args.host, args.port), daemon=True).start()
 

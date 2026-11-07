@@ -99,7 +99,7 @@ adb reverse tcp:7878 tcp:7878
 ```
 
 ```bash
-adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878 --protocolo frame
+adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878
 ```
 
 Abra http://127.0.0.1:8787 e use o joystick ou o `snes_fake_pad`.

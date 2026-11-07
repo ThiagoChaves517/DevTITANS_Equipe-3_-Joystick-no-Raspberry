@@ -163,6 +163,50 @@ adb shell "cd /data/local/tmp && (./frame_sniffer --william --duration-ms 15000 
 
 Cada linha do resultado é uma "rajada": `linha=256 A -> ... garra=+1 x34 linhas em 998 ms`.
 
+### 6.1. Demonstração sem ESP32: o braço no navegador
+
+O simulador (`braco/simulador/arm_sim.py`) faz o papel do ESP32 **com o seu firmware**. Ele lê no máximo
+uma linha a cada 25 ms, anda 1° por botão e respeita os seus limites `MIN_*`/`MAX_*`. O resto da cadeia é o
+real: joystick → app → driver do Raphael → `snes_arm_daemon` na Raspberry. Só o ESP32 é trocado pelo PC.
+
+Em um terminal, na raiz do repositório, deixe rodando:
+
+```bash
+python braco/simulador/arm_sim.py
+```
+
+Em outro terminal, ligue a Raspberry ao simulador (o `adb reverse` precisa ser refeito depois de cada reboot):
+
+```bash
+adb reverse tcp:7878 tcp:7878
+```
+
+```bash
+adb shell "nohup /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878 --verbose > /data/local/tmp/snes_arm_sim.log 2>&1 &"
+```
+
+Abra **http://127.0.0.1:8787** e use o joystick. O painel mostra:
+- o braço de lado (ombro e cotovelo) e de cima (base e garra);
+- os botões recebidos e o número de cada linha;
+- os ângulos de cada servo;
+- as linhas/s (cerca de 33 com um botão apertado);
+- a "fila", ou seja, as linhas esperando o `loop()`. Ela deve ficar em 0 ou 1.
+
+Para parar (o simulador atende um driver por vez, então pare um antes de subir outro):
+
+```bash
+adb shell "pkill -f '[s]nes_arm_daemon --device tcp'; pkill -f '[s]nes_input_daemon --socket demo'"
+```
+
+Sem joystick, dá para mandar botões pelo daemon do Raphael com o `ipc_probe`, que vai para a Raspberry junto
+com o `device_test.py`. Nesse caso, o `snes_arm_daemon` usa `--name SNES-ARM-DEMO`:
+
+```bash
+adb shell "cd /data/local/tmp/armtest && (./snes_input_daemon --socket demo --name SNES-ARM-DEMO --client-timeout-ms 3000 > /dev/null 2>&1 &); sleep 0.5; (./snes_arm_daemon --device tcp:127.0.0.1:7878 --name SNES-ARM-DEMO > /dev/null 2>&1 &); sleep 2; ./ipc_probe --socket demo --hold-ms 1500 FFEF FFFF FFFE FFFF FFBF FFFF FEFF FFFF"
+```
+
+Isso faz ↑, B, ← e A, 1,5 s cada.
+
 ## 7. Resultados de 06/11 (Raspberry real, sem o braço)
 
 | Teste | Resultado |

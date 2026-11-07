@@ -55,7 +55,7 @@
 <body>
 <main>
   <h1>Simulador do braço</h1>
-  <p class="sub">Faz o papel do ESP32 (firmware SNES_ARM_ESP32): recebe os 16 bits do snes_arm_daemon e não responde.</p>
+  <p class="sub" id="sub">Faz o papel do ESP32 do braço: recebe o controle do snes_arm_daemon e não responde.</p>
 
   <div class="grid">
     <section class="card">
@@ -77,7 +77,7 @@
     </section>
 
     <section class="card">
-      <h2>Mapeamento (wiki do William)</h2>
+      <h2 id="mapping-title">Mapeamento (wiki do William)</h2>
       <table id="mapping"></table>
       <h2 style="margin-top:14px">Eventos</h2>
       <div class="log" id="log"></div>
@@ -97,6 +97,18 @@ const MAPPING = [
   [["X"], "X", "fechar a garra"],
   [["SELECT"], "Select", "modo acelerômetro (no joystick)"],
   [["START"], "Start", "parar os movimentos"],
+];
+// firmwareBraco.ino (William), pressButton(): 1° por linha recebida; Start/Select/L/R caem no "default".
+const MAPPING_WILLIAM = [
+  [["LEFT"], "←", "base +1° (pino 13)"],
+  [["RIGHT"], "→", "base −1°"],
+  [["UP"], "↑", "ombro +1° (pino 14)"],
+  [["DOWN"], "↓", "ombro −1°"],
+  [["B"], "B", "cotovelo +1° (pino 18)"],
+  [["Y"], "Y", "cotovelo −1°"],
+  [["A"], "A", "garra +1°, abre (pino 26)"],
+  [["X"], "X", "garra −1°, fecha"],
+  [["START", "SELECT", "L", "R"], "Start / Select / L / R", "nada (default)"],
 ];
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const rad = d => d * Math.PI / 180;
@@ -160,13 +172,21 @@ function drawTop(ctx, a, joints) {
 
 function render(st) {
   const pill = (ok, yes, no) => `<span class="pill ${ok ? "on" : "off"}">${ok ? yes : no}</span>`;
+  const william = st.protocol === "william";
+  document.getElementById("sub").textContent = william
+    ? "Faz o papel do ESP32 com o firmware do William (firmwareBraco.ino): lê 1 linha a cada 25 ms e anda 1° por botão."
+    : "Faz o papel do ESP32 com o firmware SNES_ARM_ESP32: recebe os quadros de 8 bytes e não responde.";
+  document.getElementById("mapping-title").textContent =
+    william ? "Mapeamento (firmwareBraco.ino do William)" : "Mapeamento (wiki do William)";
   document.getElementById("pills").innerHTML =
     pill(st.connected, "snes_arm_daemon conectado", "sem conexão") +
-    `<span class="pill">${st.rate_hz} quadros/s</span>` +
+    `<span class="pill">${st.rate_hz} ${william ? "linhas" : "quadros"}/s</span>` +
     `<span class="pill">válidos ${st.frames} · inválidos ${st.errors}</span>` +
-    `<span class="pill">watchdog ${st.watchdog_events}</span>`;
+    (william ? `<span class="pill">fila ${st.backlog} (máx ${st.max_backlog})</span>`
+             : `<span class="pill">watchdog ${st.watchdog_events}</span>`);
   document.getElementById("state").textContent =
-    "0x" + st.state.toString(16).toUpperCase().padStart(4, "0") + (st.last_seq === null ? "" : `  seq ${st.last_seq}`);
+    "0x" + st.state.toString(16).toUpperCase().padStart(4, "0") +
+    (st.last_seq === null ? "" : william ? `  linha ${st.last_seq}` : `  seq ${st.last_seq}`);
   document.getElementById("keys").innerHTML =
     KEYS.map(k => `<span class="key ${st.pressed.includes(k) ? "down" : ""}">${k}</span>`).join("");
 
@@ -178,7 +198,7 @@ function render(st) {
       <div class="bar"><div class="cur" style="left:calc(${pos}% - 2px)"></div></div></div>`;
   }).join("");
 
-  document.getElementById("mapping").innerHTML = MAPPING.map(([keys, label, what]) =>
+  document.getElementById("mapping").innerHTML = (william ? MAPPING_WILLIAM : MAPPING).map(([keys, label, what]) =>
     `<tr class="${keys.some(k => st.pressed.includes(k)) ? "active" : ""}"><td>${label}</td><td>${what}</td></tr>`).join("");
   document.getElementById("log").textContent = st.log.slice().reverse().join("\n");
 
