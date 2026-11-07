@@ -1,22 +1,32 @@
 #!/usr/bin/env sh
 # Implanta o snes_arm_daemon no Raspberry via ADB (modo desenvolvimento; ver braco/docs/OPERACAO.md).
-#   braco/scripts/deploy.sh                 compila, envia e inicia (--device auto)
-#   DEVICE=usb:1-1.3 braco/scripts/deploy.sh escolhe a serial do braço
-#   braco/scripts/deploy.sh stop            para o daemon
+#   braco/scripts/deploy.sh                    compila, envia e inicia (--device auto, --protocolo william)
+#   DEVICE=usb:1-1.3 braco/scripts/deploy.sh    escolhe a serial do braço
+#   PROTOCOLO=frame braco/scripts/deploy.sh     firmware SNES_ARM_ESP32 (quadros de 8 bytes) em vez do do William
+#   EXTRA="--echo --verbose" braco/scripts/...  mostra no log o que o ESP32 escreve e cada estado do controle
+#   braco/scripts/deploy.sh stop               para o daemon
+#
+# Funciona no Mac/Linux e no Windows (Git Bash), com o NDK do Android Studio.
 #
 # O snes_input_daemon + app (branch driver) sobem com o scripts/deploy.sh da raiz.
 set -eu
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Git Bash (Windows): não converter /data/local/tmp/... em C:/Program Files/Git/data/... nos argumentos do adb.
+export MSYS_NO_PATHCONV=1
+# ...e por isso os caminhos locais vão já no formato do Windows (C:/...), que o adb.exe entende (pwd -W).
+ROOT="$(cd "$(dirname "$0")/.." && { pwd -W 2>/dev/null || pwd; })"
 REMOTE=/data/local/tmp
 LOG=$REMOTE/snes_arm_daemon.log
 DEVICE="${DEVICE:-auto}"
+PROTOCOLO="${PROTOCOLO:-william}"
+EXTRA="${EXTRA:-}"
 
-stop_all() { adb shell "pkill -f $REMOTE/snes_arm_daemon" >/dev/null 2>&1 || true; }
+# "[/]data/...": o pkill -f não casa com o próprio "sh -c" do adb.
+stop_all() { adb shell "pkill -f '[/]data/local/tmp/snes_arm_daemon'" >/dev/null 2>&1 || true; }
 
 if [ "${1:-}" = "stop" ]; then stop_all; echo "Parado."; exit 0; fi
 
 echo "== build"
-"$ROOT/daemon/build.sh" >/dev/null
+sh "$ROOT/daemon/build.sh" >/dev/null
 
 echo "== enviar"
 adb root >/dev/null 2>&1 || true  # /dev/ttyUSB* é root:root 0600 na imagem atual
@@ -29,8 +39,8 @@ adb shell chmod 755 "$REMOTE/snes_arm_daemon" "$REMOTE/frame_sniffer" "$REMOTE/s
 echo "== seriais vistas pela placa"
 adb shell "$REMOTE/snes_arm_daemon --list"
 
-echo "== iniciar (--device $DEVICE)"
-adb shell "nohup $REMOTE/snes_arm_daemon --device $DEVICE > $LOG 2>&1 &"
+echo "== iniciar (--device $DEVICE --protocolo $PROTOCOLO $EXTRA)"
+adb shell "nohup $REMOTE/snes_arm_daemon --device $DEVICE --protocolo $PROTOCOLO $EXTRA > $LOG 2>&1 &"
 sleep 1
 adb shell "pidof snes_arm_daemon" >/dev/null || { adb shell cat "$LOG"; echo "daemon não iniciou" >&2; exit 1; }
 adb shell cat "$LOG"

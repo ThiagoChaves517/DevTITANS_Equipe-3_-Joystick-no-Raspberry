@@ -3,8 +3,12 @@
 // Contrato: braco/docs/protocolo_serial.md.
 //
 // Uso: snes_arm_daemon [--device auto|/dev/ttyUSB1|usb:1-1.3|tcp:HOST:PORTA] [--name "SNES-BT-Controller"]
-//                      [--input /dev/input/eventN] [--keepalive-ms 100] [--boot-wait-ms 1500]
-//                      [--echo] [--verbose] [--list]
+//                      [--protocolo william|frame] [--input /dev/input/eventN] [--keepalive-ms N]
+//                      [--boot-wait-ms 1500] [--echo] [--verbose] [--list]
+//
+// --protocolo william (padrão): texto decimal, 1 linha a cada 30 ms enquanto houver botão pressionado,
+//                               para o firmware do William (branch FirmwareBraco).
+// --protocolo frame:            quadro binário de 8 bytes a cada 100 ms, para o SNES_ARM_ESP32 e o simulador.
 #include <poll.h>
 #include <signal.h>
 #include <termios.h>
@@ -36,7 +40,8 @@ struct Options {
     std::string device = "auto";
     std::string name = "SNES-BT-Controller";
     std::string input;
-    long keepalive_ms = 100;
+    snes_arm::Wire wire = snes_arm::Wire::William;
+    long keepalive_ms = -1;  // -1 = padrão do protocolo (william 30 ms, frame 100 ms)
     long boot_wait_ms = 1500;
     bool echo = false;
     bool verbose = false;
@@ -54,6 +59,11 @@ bool parse(int argc, char** argv, Options& o) {
         if (a == "--device" && (v = value("--device"))) o.device = v;
         else if (a == "--name" && (v = value("--name"))) o.name = v;
         else if (a == "--input" && (v = value("--input"))) o.input = v;
+        else if (a == "--protocolo" && (v = value("--protocolo"))) {
+            if (std::string(v) == "william") o.wire = snes_arm::Wire::William;
+            else if (std::string(v) == "frame") o.wire = snes_arm::Wire::Frame;
+            else { LOGE("--protocolo deve ser william ou frame"); return false; }
+        }
         else if (a == "--keepalive-ms" && (v = value("--keepalive-ms"))) o.keepalive_ms = std::strtol(v, nullptr, 10);
         else if (a == "--boot-wait-ms" && (v = value("--boot-wait-ms"))) o.boot_wait_ms = std::strtol(v, nullptr, 10);
         else if (a == "--echo") o.echo = true;
@@ -61,8 +71,12 @@ bool parse(int argc, char** argv, Options& o) {
         else if (a == "--list") o.list = true;
         else { LOGE("argumento inválido: %s", a.c_str()); return false; }
     }
-    // O ESP32 zera as direções após 250 ms sem quadro: o keepalive precisa ficar bem abaixo disso.
+    const bool william = o.wire == snes_arm::Wire::William;
+    if (o.keepalive_ms < 0) o.keepalive_ms = william ? 30 : 100;
+    // frame: o SNES_ARM_ESP32 zera as direções após 250 ms sem quadro, o keepalive fica bem abaixo disso.
     if (o.keepalive_ms <= 0 || o.keepalive_ms > 200) { LOGE("--keepalive-ms deve ficar entre 1 e 200"); return false; }
+    // william: o firmware lê 1 linha a cada 25 ms; mais rápido acumula linhas e o braço anda depois de soltar.
+    if (william && o.keepalive_ms < 26) { LOGE("--protocolo william: --keepalive-ms deve ser >= 26"); return false; }
     if (o.boot_wait_ms < 0) { LOGE("--boot-wait-ms deve ser >= 0"); return false; }
     return true;
 }
@@ -96,12 +110,13 @@ int main(int argc, char** argv) {
     signal(SIGPIPE, SIG_IGN);
 
     snes_arm::SerialLink link(opt.device, opt.boot_wait_ms, opt.echo);
-    snes_arm::Forwarder forwarder(link, opt.keepalive_ms);
+    snes_arm::Forwarder forwarder(link, opt.keepalive_ms, opt.wire);
     snes_arm::EvdevReader reader(opt.name, opt.input);
     snes_arm::SnesRegister reg;
 
-    LOGI("snes_arm_daemon: controle \"%s\" -> braço em %s, keepalive %ld ms", opt.name.c_str(), opt.device.c_str(),
-         opt.keepalive_ms);
+    LOGI("snes_arm_daemon: controle \"%s\" -> braço em %s, protocolo %s, %s %ld ms", opt.name.c_str(),
+         opt.device.c_str(), opt.wire == snes_arm::Wire::William ? "william (texto)" : "frame (8 bytes)",
+         opt.wire == snes_arm::Wire::William ? "1 linha a cada" : "keepalive", opt.keepalive_ms);
 
     uint16_t logged = reg.value();
     auto publish = [&](const char* why) {
@@ -142,8 +157,8 @@ int main(int argc, char** argv) {
             }
         }
         if (p[1].revents & (POLLIN | POLLHUP | POLLERR)) {
-            link.on_readable();
-            if (link.fd() < 0) LOGW("o braço vai parar sozinho em 250 ms (watchdog do ESP32)");
+            link.on_readable((p[1].revents & (POLLHUP | POLLERR)) != 0);
+            if (link.fd() < 0) LOGW("o braço para sozinho: william sem linhas não anda; frame zera em 250 ms (watchdog)");
         }
 
         forwarder.tick(now_ms());  // mudança de estado sai na mesma volta do laço

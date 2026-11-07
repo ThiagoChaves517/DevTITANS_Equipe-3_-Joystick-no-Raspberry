@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "../../../daemon/src/controller_device.h"  // snes_input_daemon (branch driver)
@@ -230,7 +231,78 @@ static void test_forwarder_policy() {
     CHECK(f.frames_sent() == 6);
 }
 
+// ---- protocolo william (firmwareBraco.ino, branch FirmwareBraco) ----
+
+static std::string text(const std::vector<uint8_t>& v) { return std::string(v.begin(), v.end()); }
+
+static void test_william_encoding() {
+    char buf[8];
+    CHECK(encode_william(0xFFFF, buf, sizeof(buf)) == 2 && std::strcmp(buf, "0\n") == 0);
+    CHECK(encode_william(press({8}), buf, sizeof(buf)) == 4 && std::strcmp(buf, "256\n") == 0);  // A = bit 8
+    CHECK(encode_william(press({0, 4, 8}), buf, sizeof(buf)) == 4 && std::strcmp(buf, "273\n") == 0);  // B+UP+A
+    CHECK(encode_william(0x0000, buf, sizeof(buf)) == 5 && std::strcmp(buf, "4095\n") == 0);  // só os 12 botões
+    CHECK(encode_william(0x0000, buf, 4) == 0);  // não cabe: não envia lixo
+}
+
+static void test_forwarder_william_policy() {
+    FakeLink link;
+    Forwarder f(link, 30, Wire::William);
+    link.ready = true;
+
+    f.tick(0);
+    f.tick(500);
+    CHECK(link.frames.empty());  // solto: nada no fio (nem a sincronização inicial)
+    CHECK(f.next_wakeup_ms(500) == -1);
+
+    f.publish(press({8}));  // A: sai na hora
+    f.tick(1000);
+    CHECK(link.frames.size() == 1 && text(link.frames[0]) == "256\n");
+    f.tick(1010);
+    CHECK(link.frames.size() == 1);
+    CHECK(f.next_wakeup_ms(1010) == 20);
+    f.tick(1030);  // segurando: 1 linha a cada 30 ms (cada linha = 1° no braço)
+    CHECK(link.frames.size() == 2 && text(link.frames[1]) == "256\n");
+
+    f.publish(press({8, 0}));  // A+B logo depois: espera completar 30 ms, não manda 2 linhas em < 25 ms
+    f.tick(1040);
+    CHECK(link.frames.size() == 2);
+    CHECK(f.next_wakeup_ms(1040) == 20);
+    f.tick(1060);
+    CHECK(link.frames.size() == 3 && text(link.frames[2]) == "257\n");
+
+    f.publish(0xFFFF);  // soltou: as linhas param (o braço para)
+    f.tick(1090);
+    f.tick(2000);
+    CHECK(link.frames.size() == 3);
+    CHECK(f.next_wakeup_ms(2000) == -1);
+
+    link.ready = false;  // cabo solto com X pressionado: nada sai; volta e continua
+    f.publish(press({9}));
+    f.tick(2100);
+    CHECK(link.frames.size() == 3);
+    link.ready = true;
+    f.link_restarted();
+    f.tick(2200);
+    CHECK(link.frames.size() == 4 && text(link.frames[3]) == "512\n");
+
+    // Intervalo entre linhas nunca < 30 ms, por mais que o estado mude.
+    long long last = 2200;
+    bool spaced = true;
+    for (long long t = 2201; t < 3000; ++t) {
+        f.publish(t % 2 ? press({4}) : press({5}));
+        const size_t before = link.frames.size();
+        f.tick(t);
+        if (link.frames.size() != before) {
+            spaced = spaced && t - last >= 30;
+            last = t;
+        }
+    }
+    CHECK(spaced);
+}
+
 int main() {
+    test_william_encoding();
+    test_forwarder_william_policy();
     test_contract_vector();
     test_decoder_basics();
     test_decoder_resyncs_after_random_noise();

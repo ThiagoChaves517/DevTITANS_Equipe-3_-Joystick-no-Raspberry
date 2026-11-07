@@ -168,13 +168,15 @@ int main(int argc, char **argv)
 
     while (fgets(line, sizeof(line), stdin) != NULL)
     {
-        char *cmd = strtok(line, " \t\r\n");
+        // strtok_r: o strtok é "deprecated" no NDK 30 e o -Werror derruba o build.
+        char *save = NULL;
+        char *cmd = strtok_r(line, " \t\r\n", &save);
 
         if (cmd == NULL || cmd[0] == '#')
             continue;
 
-        char *a1 = strtok(NULL, " \t\r\n");
-        char *a2 = strtok(NULL, " \t\r\n");
+        char *a1 = strtok_r(NULL, " \t\r\n", &save);
+        char *a2 = strtok_r(NULL, " \t\r\n", &save);
         int index;
 
         if (strcmp(cmd, "quit") == 0)

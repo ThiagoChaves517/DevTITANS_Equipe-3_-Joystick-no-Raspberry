@@ -222,7 +222,7 @@ bool SerialLink::send(const uint8_t* data, size_t len) {
     return false;
 }
 
-void SerialLink::on_readable() {
+void SerialLink::on_readable(bool hangup) {
     char buf[256];
     for (;;) {
         const ssize_t r = read(fd_, buf, sizeof(buf));
@@ -238,9 +238,10 @@ void SerialLink::on_readable() {
             }
             continue;
         }
-        if (r == 0 && !is_tcp_) return;  // tty sem dados
-        if (r < 0 && (errno == EAGAIN || errno == EINTR)) return;
-        close_link(r == 0 ? "conexão fechada" : strerror(errno));  // cabo arrancado: EIO/ENODEV
+        if (r == 0 && !is_tcp_ && !hangup) return;  // tty sem dados
+        if (r < 0 && (errno == EAGAIN || errno == EINTR) && !hangup) return;
+        // Cabo arrancado: POLLHUP + read 0 (tty desligada), EIO ou ENODEV.
+        close_link(r == 0 ? (is_tcp_ ? "conexão fechada" : "serial desligada (hangup)") : strerror(errno));
         return;
     }
 }

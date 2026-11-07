@@ -3,6 +3,10 @@
 Resumo prático. Os detalhes estão em [README.md](README.md), [docs/OPERACAO.md](docs/OPERACAO.md) e
 [docs/protocolo_serial.md](docs/protocolo_serial.md).
 
+> **06/11: leia primeiro o [GUIA_WILLIAM.md](GUIA_WILLIAM.md).** O driver agora fala por padrão com o firmware
+> do William (branch `FirmwareBraco`) e roda também no Windows. Este tutorial continua valendo para o
+> `SNES_ARM_ESP32` e o simulador (`--protocolo frame`).
+
 ## 1. O que precisa
 
 | Item | Para quê |
@@ -95,7 +99,7 @@ adb reverse tcp:7878 tcp:7878
 ```
 
 ```bash
-adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878
+adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878 --protocolo frame
 ```
 
 Abra http://127.0.0.1:8787 e use o joystick ou o `snes_fake_pad`.

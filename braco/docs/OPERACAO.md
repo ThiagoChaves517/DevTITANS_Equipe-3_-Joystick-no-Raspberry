@@ -41,7 +41,8 @@ adb shell "nohup /data/local/tmp/snes_arm_daemon > /data/local/tmp/snes_arm_daem
 | `--device` | `auto` | `auto`, `/dev/ttyUSBn`, `usb:<porta>` ou `tcp:HOST:PORTA` (simulador) |
 | `--name` | `SNES-BT-Controller` | nome do gamepad do `snes_input_daemon` |
 | `--input` | — | usar um `/dev/input/eventN` fixo em vez de procurar pelo nome |
-| `--keepalive-ms` | 100 | reenvio enquanto há botão pressionado (máx. 200: o ESP32 para em 250) |
+| `--protocolo` | `william` | `william`: texto decimal para o firmware do William (branch `FirmwareBraco`); `frame`: quadros de 8 bytes para o `SNES_ARM_ESP32` e o simulador. Ver [../GUIA_WILLIAM.md](../GUIA_WILLIAM.md) |
+| `--keepalive-ms` | 30 (`william`) / 100 (`frame`) | `william`: 1 linha a cada N ms enquanto há botão pressionado (mín. 26: o firmware lê 1 a cada 25 ms). `frame`: reenvio (máx. 200: o ESP32 para em 250) |
 | `--boot-wait-ms` | 1500 | espera o boot do ESP32 depois de abrir a serial |
 | `--echo` | — | mostra no log o que o ESP32 escreve (`[ARM] ...`) |
 | `--verbose` | — | loga cada mudança de estado |
@@ -59,7 +60,7 @@ Simulador visual no computador:
 ```sh
 python3 braco/simulador/arm_sim.py      # painel em http://127.0.0.1:8787
 adb reverse tcp:7878 tcp:7878
-adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878
+adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878 --protocolo frame
 ```
 
 ## Diagnóstico

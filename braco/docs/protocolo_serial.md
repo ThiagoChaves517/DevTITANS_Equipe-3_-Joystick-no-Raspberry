@@ -1,5 +1,9 @@
 # Protocolo Raspberry → ESP32 do braço (v1)
 
+> **06/11:** este documento descreve o `--protocolo frame` (firmware `SNES_ARM_ESP32` e simulador). O padrão do
+> `snes_arm_daemon` agora é `--protocolo william`, para o firmware do William (branch `FirmwareBraco`): uma linha
+> de texto com o número decimal dos botões pressionados, a cada 30 ms. Detalhes em [../GUIA_WILLIAM.md](../GUIA_WILLIAM.md).
+
 Implementação: `braco/daemon/src/forwarder.*` (envio) e `braco/firmware_esp32/SNES_ARM_ESP32/FrameProtocol.*`
 (quadro e decodificador, compartilhados pelo firmware, pelo daemon e pelos testes). Testes:
 `braco/daemon/tests/daemon_tests.cpp`.

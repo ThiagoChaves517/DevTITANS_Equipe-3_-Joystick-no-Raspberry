@@ -10,7 +10,7 @@ Como o braço real, não responde nada.
 Uso (só biblioteca padrão do Python 3):
     python3 arm_sim.py                       # escuta em 127.0.0.1:7878, painel em http://127.0.0.1:8787
     adb reverse tcp:7878 tcp:7878
-    adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878
+    adb shell /data/local/tmp/snes_arm_daemon --device tcp:127.0.0.1:7878 --protocolo frame
 """
 
 import argparse

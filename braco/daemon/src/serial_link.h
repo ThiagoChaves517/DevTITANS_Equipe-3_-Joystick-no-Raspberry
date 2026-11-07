@@ -37,7 +37,9 @@ public:
     bool send(const uint8_t* data, size_t len) override;
 
     // Esvazia o que o ESP32 escreveu (logs "[ARM]"); com --echo eles vão para o log.
-    void on_readable();
+    // hangup = poll() marcou POLLHUP/POLLERR (cabo arrancado, ESP32 desligado, pty fechada):
+    // aí read() == 0 é fim do link, e não "sem dados". Sem fechar, o poll() acorda sem parar (100% de CPU).
+    void on_readable(bool hangup);
     void close_link(const char* why);
 
     int fd() const { return fd_; }

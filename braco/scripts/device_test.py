@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-REMOTE = "/data/local/tmp"
+REMOTE = "/data/local/tmp/armtest"  # pasta própria: não sobrescreve o snes_input_daemon/snes_arm_daemon instalados
 SOCKET = "snesbt_input_armtest"
 NAME = "SNES-ARM-TEST"
 
@@ -43,7 +43,7 @@ results = []
 
 
 def sh(cmd, check=True):
-    r = subprocess.run(["adb", "shell", cmd], capture_output=True, text=True)
+    r = subprocess.run(["adb", "shell", cmd], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if check and r.returncode != 0:
         raise RuntimeError(f"adb shell {cmd}: {r.stderr.strip()}")
     return r.stdout
@@ -55,59 +55,84 @@ def check(name, ok, detail=""):
 
 
 def find_ndk():
-    sdk = Path(os.environ.get("ANDROID_HOME", Path.home() / "Library/Android/sdk"))
     if os.environ.get("ANDROID_NDK_HOME"):
         return Path(os.environ["ANDROID_NDK_HOME"])
-    # Mais nova com toolchain (o daemon/build.sh da raiz pega a mais nova mesmo se incompleta).
-    for ndk in sorted((sdk / "ndk").glob("*"), key=lambda p: [int(x) for x in re.findall(r"\d+", p.name)], reverse=True):
-        if (ndk / "toolchains/llvm/prebuilt").is_dir():
-            return ndk
+    # SDK do Android Studio no Mac, no Linux e no Windows.
+    sdks = [os.environ.get("ANDROID_HOME"), os.environ.get("ANDROID_SDK_ROOT"), Path.home() / "Library/Android/sdk",
+            Path.home() / "Android/Sdk", Path(os.environ.get("LOCALAPPDATA", "")) / "Android/Sdk"]
+    for sdk in (Path(s) for s in sdks if s):
+        # Mais nova com toolchain (uma instalação incompleta não tem toolchains/llvm).
+        for ndk in sorted((sdk / "ndk").glob("*"), key=lambda p: [int(x) for x in re.findall(r"\d+", p.name)],
+                          reverse=True):
+            if (ndk / "toolchains/llvm/prebuilt").is_dir():
+                return ndk
     sys.exit("NDK não encontrado; defina ANDROID_NDK_HOME")
 
 
 def build_and_push():
+    # Compila direto com o clang++ do NDK (--target), sem os build.sh: assim funciona também no Windows,
+    # onde o atalho aarch64-linux-android34-clang++ é um .cmd. Mesmas flags dos dois build.sh.
     ndk = find_ndk()
-    env = {**os.environ, "ANDROID_NDK_HOME": str(ndk)}
-    subprocess.run([str(ROOT / "braco/daemon/build.sh")], check=True, capture_output=True, env=env)
-    subprocess.run([str(ROOT / "daemon/build.sh")], check=True, capture_output=True, env=env)
-    cxx = next((ndk / "toolchains/llvm/prebuilt").iterdir()) / "bin/aarch64-linux-android34-clang++"
-    subprocess.run([str(cxx), "-std=c++17", "-O2", "-static-libstdc++", str(ROOT / "daemon/tools/ipc_probe.cpp"),
-                    str(ROOT / "daemon/src/ipc_protocol.cpp"), "-o", str(ROOT / "daemon/build/ipc_probe")], check=True)
+    cxx = next((ndk / "toolchains/llvm/prebuilt").iterdir()) / "bin/clang++"
+    flags = ["--target=aarch64-linux-android34", "-std=c++17", "-O2", "-Wall", "-Wextra", "-Werror",
+             "-static-libstdc++"]
+    fw = ROOT / "braco/firmware_esp32/SNES_ARM_ESP32"
+    arm = ROOT / "braco/daemon"
+    raph = ROOT / "daemon"
+    (arm / "build").mkdir(exist_ok=True)
+    (raph / "build").mkdir(exist_ok=True)
+    jobs = [
+        ([*sorted((arm / "src").glob("*.cpp")), fw / "FrameProtocol.cpp"], ["-I", fw, "-llog"], arm / "build/snes_arm_daemon"),
+        ([arm / "tools/frame_sniffer.cpp", fw / "FrameProtocol.cpp"], ["-I", fw], arm / "build/frame_sniffer"),
+        (sorted((raph / "src").glob("*.cpp")), ["-llog"], raph / "build/snes_input_daemon"),
+        ([raph / "tools/ipc_probe.cpp", raph / "src/ipc_protocol.cpp"], [], raph / "build/ipc_probe"),
+    ]
+    for srcs, extra, out in jobs:
+        subprocess.run([str(cxx), *flags, *map(str, srcs), *map(str, extra), "-o", str(out)], check=True)
+
     subprocess.run(["adb", "root"], capture_output=True)
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=30)
-    files = [ROOT / "braco/daemon/build/snes_arm_daemon", ROOT / "braco/daemon/build/frame_sniffer",
-             ROOT / "daemon/build/snes_input_daemon", ROOT / "daemon/build/ipc_probe"]
+    sh(f"mkdir -p {REMOTE}")
+    files = [arm / "build/snes_arm_daemon", arm / "build/frame_sniffer", raph / "build/snes_input_daemon",
+             raph / "build/ipc_probe"]
     subprocess.run(["adb", "push", *map(str, files), REMOTE + "/"], check=True, capture_output=True)
     sh(f"chmod 755 {REMOTE}/snes_arm_daemon {REMOTE}/frame_sniffer {REMOTE}/snes_input_daemon {REMOTE}/ipc_probe")
 
 
 def cleanup():
-    sh(f"pkill -f '{REMOTE}/frame_sniffer'; pkill -f 'snes_arm_daemon --device /dev/pts'; "
-       f"pkill -f 'snes_input_daemon --socket {SOCKET}'; pkill -f 'ipc_probe --socket {SOCKET}'", check=False)
+    # "[x]..." no padrão: o pkill -f não casa com o próprio "sh -c" do adb (que contém o texto do padrão
+    # e seria morto antes de chegar aos outros pkill).
+    sh(f"pkill -f '[f]rame_sniffer --duration-ms'; pkill -f '[s]nes_arm_daemon --device /dev/pts'; "
+       f"pkill -f '[s]nes_input_daemon --socket {SOCKET}'; pkill -f '[i]pc_probe --socket {SOCKET}'; true",
+       check=False)
 
 
-def main():
-    print("== compilar e enviar")
-    build_and_push()
+def run_chain(protocol):
+    """Sobe a cadeia completa com o protocolo dado, roda os passos e devolve (sniffer, arm_log, cpu)."""
+    print(f"\n######## protocolo {protocol} ########")
     cleanup()
-
-    print("== subir: snes_input_daemon (teste) -> snes_arm_daemon -> frame_sniffer")
-    sh(f"cd {REMOTE} && (./snes_input_daemon --socket {SOCKET} --name {NAME} > input_test.log 2>&1 &)")
-    sh(f"cd {REMOTE} && (./frame_sniffer --duration-ms 30000 > sniffer.log 2>&1 &)")
+    print("== subir: snes_input_daemon (teste) -> snes_arm_daemon -> frame_sniffer (ESP32 falso)")
+    # O snes_input_daemon solta os botões após 500 ms sem mensagem do cliente (watchdog, 05/11). O app
+    # reenvia a cada 100 ms, mas o ipc_probe manda cada estado uma vez só: a instância de teste usa 3 s.
+    sh(f"cd {REMOTE} && (./snes_input_daemon --socket {SOCKET} --name {NAME} --client-timeout-ms 3000 "
+       f"> input_test.log 2>&1 &)")
+    william = " --william" if protocol == "william" else ""
+    sh(f"cd {REMOTE} && ({REMOTE}/frame_sniffer --duration-ms 30000{william} > sniffer.log 2>&1 &)")
     time.sleep(1.0)
     m = re.search(r"PTY (\S+)", sh(f"cat {REMOTE}/sniffer.log"))
-    check("frame_sniffer criou a pseudo-serial", bool(m))
+    check(f"[{protocol}] frame_sniffer criou a pseudo-serial", bool(m))
     if not m:
-        return
-    sh(f"cd {REMOTE} && (./snes_arm_daemon --device {m.group(1)} --boot-wait-ms 0 --name {NAME} --verbose "
-       f"> arm_test.log 2>&1 &)")
+        return None
+    sh(f"cd {REMOTE} && (./snes_arm_daemon --device {m.group(1)} --protocolo {protocol} --boot-wait-ms 0 "
+       f"--name {NAME} --verbose > arm_test.log 2>&1 &)")
     time.sleep(1.5)
     arm_log = sh(f"cat {REMOTE}/arm_test.log")
-    check("snes_arm_daemon achou o gamepad criado pelo snes_input_daemon", f'"{NAME}"' in arm_log, arm_log)
+    check(f"[{protocol}] snes_arm_daemon achou o gamepad criado pelo snes_input_daemon", f'"{NAME}"' in arm_log,
+          arm_log)
 
     print("== ipc_probe envia os estados (passando pelo daemon do Raphael)")
     probe = sh(f"{REMOTE}/ipc_probe --socket {SOCKET} --hold-ms {HOLD_MS} " + " ".join(f"{s:04X}" for s, _ in STEPS))
-    check("HELLO_ACK do snes_input_daemon", "HELLO_ACK ok" in probe, probe)
+    check(f"[{protocol}] HELLO_ACK do snes_input_daemon", "HELLO_ACK ok" in probe, probe)
 
     print("== segura A por 1 s (keepalive)")
     sh(f"{REMOTE}/ipc_probe --socket {SOCKET} --hold-ms 1000 FEFF")
@@ -115,17 +140,36 @@ def main():
     print("== X pressionado e kill -9 no snes_input_daemon (o gamepad some sem soltar o botão)")
     sh(f"cd {REMOTE} && (./ipc_probe --socket {SOCKET} --hold-ms 5000 FDFF > /dev/null 2>&1 &)")
     time.sleep(0.8)
-    sh(f"pkill -9 -f 'snes_input_daemon --socket {SOCKET}'", check=False)
+    sh(f"pkill -9 -f '[s]nes_input_daemon --socket {SOCKET}'", check=False)
     time.sleep(0.8)
-    sh(f"pkill -f '{REMOTE}/frame_sniffer' ; sleep 0.3", check=False)
+
+    print("== ESP32 falso desliga (como o cabo do braço saindo): o daemon tem que largar a serial sem girar a CPU")
+    sh("pkill -f '[f]rame_sniffer --duration-ms'; sleep 1.5", check=False)
+    pid = sh("pgrep -f '[s]nes_arm_daemon --device /dev/pts'", check=False).split()
+    cpu = None
+    if pid:
+        top = sh(f"top -b -n 1 -d 1 -p {pid[0]}", check=False).strip().splitlines()
+        fields = top[-1].split() if top else []
+        cpu = float(fields[8]) if len(fields) > 8 and re.match(r"^[\d.]+$", fields[8]) else None
 
     sniff = sh(f"cat {REMOTE}/sniffer.log")
     arm_log = sh(f"cat {REMOTE}/arm_test.log")
     print(sniff)
 
+    check(f"[{protocol}] gamepad sumiu com X pressionado -> snes_arm_daemon soltou tudo",
+          "controle perdido" in arm_log, arm_log)
+    check(f"[{protocol}] serial do braço caiu -> snes_arm_daemon largou o link",
+          "link com o braço perdido" in arm_log, arm_log)
+    check(f"[{protocol}] serial do braço caiu -> snes_arm_daemon não gira a CPU (< 20%)",
+          cpu is not None and cpu < 20, f"CPU={cpu}")
+    sh(f"rm -f {REMOTE}/sniffer.log {REMOTE}/arm_test.log {REMOTE}/input_test.log", check=False)
+    return sniff
+
+
+def check_frame(sniff):
     received = [int(x, 16) for x in re.findall(r"estado=0x([0-9A-F]{4})", sniff)]
     expected = [0xFFFF] + [s for s, _ in STEPS] + [0xFEFF, 0xFFFF, 0xFDFF, 0xFFFF]
-    check("sequência de estados recebida pelo \"braço\" é exatamente a enviada", received == expected,
+    check("[frame] sequência de estados recebida pelo \"braço\" é exatamente a enviada", received == expected,
           f"esperado {[f'{x:04X}' for x in expected]}\n        recebido {[f'{x:04X}' for x in received]}")
 
     # Keepalive: entre as linhas do A segurado por 1 s não aparecem repetidos (o sniffer só imprime
@@ -135,14 +179,38 @@ def main():
     if len(hold) >= 2:
         i = hold[-1]
         gap = (seqs[i + 1][0] - seqs[i][0]) % 256 if i + 1 < len(seqs) else 0
-        check("keepalive a cada 100 ms com A segurado 1 s (8 a 13 quadros)", 8 <= gap <= 13, f"{gap} quadros")
+        check("[frame] keepalive a cada 100 ms com A segurado 1 s (8 a 13 quadros)", 8 <= gap <= 13, f"{gap} quadros")
     else:
-        check("keepalive a cada 100 ms com A segurado 1 s", False, "estado FEFF não apareceu duas vezes")
+        check("[frame] keepalive a cada 100 ms com A segurado 1 s", False, "estado FEFF não apareceu duas vezes")
+    check("[frame] nenhum quadro inválido na serial", "invalidos=0 " in sniff, sniff[-200:])
 
-    check("nenhum quadro inválido na serial", "invalidos=0 " in sniff, sniff[-200:])
-    check("gamepad sumiu com X pressionado -> snes_arm_daemon mandou neutro", "controle perdido" in arm_log, arm_log)
 
-    sh(f"rm -f {REMOTE}/sniffer.log {REMOTE}/arm_test.log {REMOTE}/input_test.log", check=False)
+def check_william(sniff):
+    # Uma "rajada" por botão segurado: solto não manda nada, então os 0xFFFF não aparecem.
+    bursts = [(int(v), int(n), int(ms)) for v, n, ms in
+              re.findall(r"linha=(\d+)\s.*?x(\d+) linhas em (\d+) ms", sniff)]
+    values = [v for v, _, _ in bursts]
+    expected = [~s & 0x0FFF for s, _ in STEPS if s != 0xFFFF] + [0x100, 0x200]
+    check("[william] sequência de botões recebida pelo \"braço\" é exatamente a enviada", values == expected,
+          f"esperado {expected}\n        recebido {values}")
+    if values == expected:
+        hold_a = bursts[-2]
+        check("[william] A segurado 1 s -> ~1 linha a cada 30 ms (28 a 36 linhas)", 28 <= hold_a[1] <= 36,
+              f"{hold_a[1]} linhas em {hold_a[2]} ms")
+        x = bursts[-1]
+        check("[william] gamepad sumiu com X pressionado -> as linhas pararam (rajada < 2 s; o probe segurava 5 s)", x[2] < 2000,
+              f"{x[1]} linhas em {x[2]} ms (ipc_probe segurava 5 s)")
+    check("[william] nenhuma linha inválida e nunca 2 linhas em < 25 ms (o firmware lê 1 a cada 25 ms)",
+          "invalidas=0 " in sniff and "abaixo_de_25ms=0" in sniff, sniff[-200:])
+
+
+def main():
+    print("== compilar e enviar")
+    build_and_push()
+    for protocol, verify in (("frame", check_frame), ("william", check_william)):
+        sniff = run_chain(protocol)
+        if sniff is not None:
+            verify(sniff)
     print(f"\n{sum(results)}/{len(results)} verificações OK")
 
 
