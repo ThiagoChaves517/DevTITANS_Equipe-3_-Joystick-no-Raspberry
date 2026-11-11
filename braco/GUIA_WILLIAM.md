@@ -276,7 +276,13 @@ adb shell tail -f /data/local/tmp/snes_arm_daemon.log
 Em 11/11, o braço parou de mexer depois de um reboot por isso: o lado do Raphael (daemon e app) tinha sido
 religado e o joystick conectou, mas o driver do braço não foi iniciado.
 
-Para religar tudo, um comando só (PowerShell ou Git Bash):
+**O driver do Raphael também não sobe sozinho.** Só o **app** sobe sozinho (`BOOT_COMPLETED: iniciando
+ControllerService`). Logo depois do boot, ele registra `Daemon indisponível @snesbt_input: Connection refused`
+até alguém iniciar o `snes_input_daemon` pelo adb. Por isso, o comando que vocês rodavam para o lado do Raphael
+(`nohup /data/local/tmp/snes_input_daemon --allow-uid ...`) é obrigatório depois de cada reboot. O
+`am start-foreground-service` não é, porque o app já se inicia sozinho.
+
+Para religar tudo, um comando só, que já inclui o do Raphael (PowerShell ou Git Bash):
 
 ```bash
 adb shell sh /data/local/tmp/rasp_start.sh
