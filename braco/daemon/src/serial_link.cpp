@@ -116,7 +116,9 @@ bool SerialLink::open_tty(const std::string& path) {
     if (fd < 0) {
         const std::string msg = "abrir " + path + ": " + strerror(errno);
         if (msg != warned_) {
-            LOGW("%s (rodou adb root?)", msg.c_str());
+            // /dev/ttyUSB* é root:root 0600: sem root dá EACCES. "adb root" não: derruba o driver do Raphael.
+            LOGW("%s%s", msg.c_str(),
+                 errno == EACCES ? " (o driver precisa de root: suba com adb shell sh /data/local/tmp/rasp_start.sh)" : "");
             warned_ = msg;
         }
         return false;

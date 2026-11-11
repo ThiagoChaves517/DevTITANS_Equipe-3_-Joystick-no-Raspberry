@@ -9,6 +9,10 @@
 # Funciona no Mac/Linux e no Windows (Git Bash), com o NDK do Android Studio.
 #
 # O snes_input_daemon + app (branch driver) sobem com o scripts/deploy.sh da raiz.
+# Depois de um reboot, sem compilar: adb shell sh /data/local/tmp/rasp_start.sh (enviado por este script).
+#
+# Roda o daemon como root com "su 0" (userdebug), e não com "adb root": o adb root reinicia o adbd e
+# derruba o snes_input_daemon do Raphael quando ele foi iniciado pelo adb.
 set -eu
 # Git Bash (Windows): não converter /data/local/tmp/... em C:/Program Files/Git/data/... nos argumentos do adb.
 export MSYS_NO_PATHCONV=1
@@ -20,8 +24,18 @@ DEVICE="${DEVICE:-auto}"
 PROTOCOLO="${PROTOCOLO:-william}"
 EXTRA="${EXTRA:-}"
 
+adb wait-for-device
+# Root sem reiniciar o adbd: "su 0" quando existe; senão, adb root (imagem sem su).
+if adb shell "su 0 id" 2>/dev/null | grep -q "uid=0"; then
+    AS_ROOT="su 0"
+else
+    adb root >/dev/null 2>&1 || true
+    adb wait-for-device
+    AS_ROOT=""
+fi
+
 # "[/]data/...": o pkill -f não casa com o próprio "sh -c" do adb.
-stop_all() { adb shell "pkill -f '[/]data/local/tmp/snes_arm_daemon'" >/dev/null 2>&1 || true; }
+stop_all() { adb shell "$AS_ROOT pkill -f '[/]data/local/tmp/snes_arm_daemon'" >/dev/null 2>&1 || true; }
 
 if [ "${1:-}" = "stop" ]; then stop_all; echo "Parado."; exit 0; fi
 
@@ -29,19 +43,19 @@ echo "== build"
 sh "$ROOT/daemon/build.sh" >/dev/null
 
 echo "== enviar"
-adb root >/dev/null 2>&1 || true  # /dev/ttyUSB* é root:root 0600 na imagem atual
-adb wait-for-device
 stop_all
+# Binários enviados antes com adb root são do root: apaga para o push (como shell) poder recriá-los.
+adb shell "$AS_ROOT rm -f $REMOTE/snes_arm_daemon $REMOTE/frame_sniffer $REMOTE/snes_fake_pad $REMOTE/rasp_start.sh"
 adb push "$ROOT/daemon/build/snes_arm_daemon" "$ROOT/daemon/build/frame_sniffer" "$ROOT/daemon/build/snes_fake_pad" \
-    "$REMOTE/" >/dev/null
+    "$ROOT/scripts/rasp_start.sh" "$REMOTE/" >/dev/null
 adb shell chmod 755 "$REMOTE/snes_arm_daemon" "$REMOTE/frame_sniffer" "$REMOTE/snes_fake_pad"
 
 echo "== seriais vistas pela placa"
 adb shell "$REMOTE/snes_arm_daemon --list"
 
 echo "== iniciar (--device $DEVICE --protocolo $PROTOCOLO $EXTRA)"
-adb shell "nohup $REMOTE/snes_arm_daemon --device $DEVICE --protocolo $PROTOCOLO $EXTRA > $LOG 2>&1 &"
-sleep 1
+adb shell "$AS_ROOT sh -c 'nohup $REMOTE/snes_arm_daemon --device $DEVICE --protocolo $PROTOCOLO $EXTRA > $LOG 2>&1 &'"
+sleep 2
 adb shell "pidof snes_arm_daemon" >/dev/null || { adb shell cat "$LOG"; echo "daemon não iniciou" >&2; exit 1; }
 adb shell cat "$LOG"
 echo "Log: adb shell tail -f $LOG"

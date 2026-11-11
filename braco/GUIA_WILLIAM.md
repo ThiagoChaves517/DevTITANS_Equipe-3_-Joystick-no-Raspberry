@@ -36,7 +36,7 @@ ESP32 do braço **no formato que o seu firmware já lê**. Seu `.ino` não preci
 
 | Item | Observação |
 |---|---|
-| Raspberry Pi 4 com GloDroid (Android 14, `userdebug`) | `adb root` precisa funcionar |
+| Raspberry Pi 4 com GloDroid (Android 14, `userdebug`) | `adb shell su 0 id` precisa responder `uid=0` (root para o driver do braço) |
 | App + `snes_input_daemon` do Raphael rodando | Já estão na placa. Confira com `adb shell ps -A \| grep snes` |
 | **ESP32 do braço com chip USB CP2102** (ou USB nativo) | **CH340 não funciona**: o kernel da Raspberry não tem o driver, e a serial nem aparece |
 | Cabo USB **de dados** do ESP32 até uma USB-A da Raspberry | Cabo só de carga não cria `/dev/ttyUSB0` |
@@ -270,26 +270,55 @@ adb shell tail -f /data/local/tmp/snes_arm_daemon.log
 
 ### 7.2. Depois de reiniciar a Raspberry
 
-Nada disso sobe sozinho no boot, porque os drivers rodam a partir de `/data/local/tmp`. Rode nesta ordem:
+**Os drivers continuam instalados**: os binários ficam em `/data/local/tmp`, que sobrevive ao reboot, então não
+é preciso compilar nem enviar de novo. O que **não** sobe sozinho são os **processos**.
+
+Em 11/11, o braço parou de mexer depois de um reboot por isso: o lado do Raphael (daemon e app) tinha sido
+religado e o joystick conectou, mas o driver do braço não foi iniciado.
+
+Para religar tudo, um comando só (PowerShell ou Git Bash):
 
 ```bash
-adb root
+adb shell sh /data/local/tmp/rasp_start.sh
+```
+
+O `braco/scripts/rasp_start.sh`, que o `deploy.sh` envia para a Raspberry, faz o seguinte:
+1. sobe o driver do Raphael, se ele ainda não estiver rodando;
+2. inicia o serviço do app;
+3. sobe o driver do braço **como root**, via `su 0`, com `--verbose --echo`;
+4. mostra o começo do log.
+
+Depois, acompanhe com `adb shell tail -f /data/local/tmp/snes_arm_daemon.log` e aperte um botão: devem
+aparecer `estado 0x...` e `esp32: BTN_...`.
+
+Outros usos:
+
+```bash
+adb shell sh /data/local/tmp/rasp_start.sh usb:1-1.4
 ```
 
 ```bash
-adb shell "nohup /data/local/tmp/snes_input_daemon --allow-uid 10092 > /data/local/tmp/snes_input_daemon.log 2>&1 &"
+adb shell sh /data/local/tmp/rasp_start.sh stop
 ```
+
+O primeiro fixa a porta (necessário com os dois ESP32 na USB); o segundo para o driver do braço.
+
+Se a Raspberry ainda não tiver o script, envie uma vez:
 
 ```bash
-adb shell "nohup /data/local/tmp/snes_arm_daemon --device usb:1-1.4 --verbose --echo > /data/local/tmp/snes_arm_daemon.log 2>&1 &"
+adb push braco/scripts/rasp_start.sh /data/local/tmp/
 ```
 
-- **`adb root` reinicia o adb e derruba tudo o que foi iniciado por ele**, inclusive o driver do Raphael. Por isso
-  ele vem primeiro, e os drivers depois.
-- O `10092` é o uid do app neste Raspberry. Confira com `adb shell pm list packages -U com.snesbt.receiver`.
+**Cuidados:**
+- **Não use `adb root`.** Ele reinicia o adb e derruba tudo o que foi iniciado por ele, inclusive o driver do
+  Raphael. O script e o `deploy.sh` usam `su 0`, que dá root só ao driver do braço, sem reiniciar nada.
+- **`Permission denied` ao abrir `/dev/ttyUSB0`** quer dizer que o driver do braço foi iniciado sem root.
+  `/dev/ttyUSB0` só pode ser aberto pelo root. Rode o `rasp_start.sh`.
+- **O joystick precisa estar conectado.** Confira no `adb logcat -s SnesBtReceiver`: o app deve estar em `READY`.
+  `READY -> RECOVERING (desconectado (status=8))` é o joystick que caiu, por estar desligado, longe ou ter mudado
+  para o modo com fio pelo Select. O app reconecta sozinho, e `status=133` na primeira tentativa é normal.
 - Se o ESP for para outra entrada USB, o número muda. Veja qual é com
   `adb shell /data/local/tmp/snes_arm_daemon --list`.
-- O app se reconecta sozinho ao driver do Raphael (`RECOVERING -> READY`).
 - Um `Address already in use` no `SnesDaemon` só quer dizer que o driver do Raphael já estava rodando.
 
 ## 8. Pendências e avisos

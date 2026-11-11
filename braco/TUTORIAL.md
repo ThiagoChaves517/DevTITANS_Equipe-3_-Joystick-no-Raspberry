@@ -11,7 +11,7 @@ Resumo prático. Os detalhes estão em [README.md](README.md), [docs/OPERACAO.md
 
 | Item | Para quê |
 |---|---|
-| Raspberry Pi 4 com GloDroid (build `userdebug`) + cabo USB-C no computador | roda os dois drivers; `adb root` precisa funcionar |
+| Raspberry Pi 4 com GloDroid (build `userdebug`) + cabo USB-C no computador | roda os dois drivers; `adb shell su 0 id` precisa responder `uid=0` |
 | Joystick + app + `snes_input_daemon` (Equipe Joystick, branch `driver`) | gera o gamepad `SNES-BT-Controller` que o `snes_arm_daemon` lê |
 | ESP32 do braço com chip **CP2102** (ou USB nativo) + cabo USB de dados | recebe os 16 bits e move os servos. **CH340 não funciona** |
 | Braço com 4 servos SG90 + **fonte 5 V externa (3–5 A)** | o braço. GND da fonte ligado ao GND do ESP32 |
@@ -130,7 +130,7 @@ Depois digite, por exemplo, `state FEFF` (A pressionado), `@500` e `state FFFF`.
 | `aguardando o controle "SNES-BT-Controller"` | O `snes_input_daemon` não está rodando: suba o lado do joystick |
 | `nenhuma serial USB` | Rode `adb shell ls /dev/ttyUSB* /dev/ttyACM*`. Se não aparecer nada, a placa provavelmente tem CH340 (sem driver no kernel) ou o cabo é só de carga |
 | `mais de uma serial USB` | Dois ESP32 na USB: use `--list` e `DEVICE=usb:<porta>` |
-| `abrir /dev/ttyUSB0: Permission denied` | Rode `adb root` antes |
+| `abrir /dev/ttyUSB0: Permission denied` | O driver subiu sem root: rode `adb shell sh /data/local/tmp/rasp_start.sh` (usa `su 0`; evite `adb root`, que derruba o driver do Raphael) |
 | Servo não mexe, mas o log está ok | Rode com `--echo` para ver o `[ARM]` do ESP32. Confira a fonte 5 V, o GND comum e se a junta já está no limite |
 | ESP32 não liga com a garra conectada | GPIO12 é *strapping*: solte o fio da garra no boot |
 | Junta anda ao contrário | Em `ArmConfig.h`, mude `INVERTE_<JUNTA>` (ex.: `INVERTE_BASE`) para `true` |
