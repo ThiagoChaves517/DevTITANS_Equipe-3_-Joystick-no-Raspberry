@@ -1,0 +1,14 @@
+# Sobe a cadeia do braço sozinha no boot, SEM recompilar a imagem: driver do Raphael (snes_input_daemon),
+# serviço do app e driver do braço (snes_arm_daemon), pelo /data/local/tmp/rasp_start.sh.
+#
+# Para placas de desenvolvimento (userdebug, SELinux Permissive). Instalação (uma vez) e remoção:
+# braco/GUIA_WILLIAM.md, seção 7.3. Na imagem definitiva, use o snes_arm_daemon.rc (binário em /vendor/bin).
+service braco_autostart /system/bin/sh /data/local/tmp/rasp_start.sh
+    user root
+    group root shell input
+    seclabel u:r:su:s0
+    oneshot
+    disabled
+
+on property:sys.boot_completed=1
+    start braco_autostart

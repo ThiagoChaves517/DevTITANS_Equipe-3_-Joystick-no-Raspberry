@@ -321,6 +321,90 @@ adb push braco/scripts/rasp_start.sh /data/local/tmp/
   `adb shell /data/local/tmp/snes_arm_daemon --list`.
 - Um `Address already in use` no `SnesDaemon` só quer dizer que o driver do Raphael já estava rodando.
 
+### 7.3. Subir sozinho no boot (sem o comando da 7.2)
+
+São dois caminhos:
+
+| Caminho | Quando usar |
+|---|---|
+| **A. Serviço do `init` nesta placa** (abaixo) | Agora, para as demonstrações. Funciona porque a imagem é `userdebug`, com SELinux `Permissive` e bootloader destravado (`orange`) |
+| **B. Na imagem do Android** | Versão final: o `braco/aosp/` (`Android.bp` + `snes_arm_daemon.rc`) põe o driver em `/vendor/bin` e o `init` o sobe. Exige recompilar a imagem no computador de build do AOSP, junto com o driver do Raphael |
+
+**Caminho A.** O arquivo `braco/aosp/braco_autostart.rc` declara um serviço que, quando o boot termina
+(`sys.boot_completed=1`), roda o `/data/local/tmp/rasp_start.sh` como root. Ele já foi copiado para
+`/data/local/tmp`; o `deploy.sh` também o envia. O que falta é colocá-lo na pasta de inicialização do sistema,
+`/vendor/etc/init`.
+
+> **Atenção:** esse passo **desliga a verificação de integridade das partições do sistema (dm-verity)** e
+> deixa `/vendor` gravável. É normal numa placa de desenvolvimento, mas é uma configuração de segurança.
+> Faça só na placa do projeto. Desfazer está logo abaixo.
+
+Uma vez, no PowerShell:
+
+```bash
+adb root
+```
+
+```bash
+adb disable-verity
+```
+
+Se ele pedir reboot (`Now reboot your device for settings to take effect`), rode `adb reboot`, espere a placa
+voltar e rode `adb root` de novo. Depois:
+
+```bash
+adb remount
+```
+
+```bash
+adb shell cp /data/local/tmp/braco_autostart.rc /vendor/etc/init/braco_autostart.rc
+```
+
+```bash
+adb shell chmod 644 /vendor/etc/init/braco_autostart.rc
+```
+
+```bash
+adb reboot
+```
+
+Depois do boot, sem rodar nada, confira:
+
+```bash
+adb shell "ps -A -o PID,USER,ARGS | grep snes_"
+```
+
+Devem aparecer o `snes_input_daemon` e o `snes_arm_daemon`. Também dá para ver no log:
+`adb logcat -s SnesArmDaemon`.
+
+- O script continua em `/data/local/tmp/rasp_start.sh`. Se ele mudar, basta enviar o novo (o `deploy.sh` faz
+  isso), sem mexer no `/vendor` de novo.
+- Com o início automático, o driver do braço usa `--device auto`. Com os dois ESP32 na USB, mude a linha do
+  serviço para `... rasp_start.sh usb:<porta>`.
+- O driver do Raphael passa a rodar como root, e não como `shell`. Não muda nada para o app.
+
+**Desfazer:**
+
+```bash
+adb root
+```
+
+```bash
+adb remount
+```
+
+```bash
+adb shell rm /vendor/etc/init/braco_autostart.rc
+```
+
+```bash
+adb enable-verity
+```
+
+```bash
+adb reboot
+```
+
 ## 8. Pendências e avisos
 
 1. **O joystick manda ↓ (e às vezes ↓ ←) parado na mesa.** Em 06/11, o app registrava `0xFFDF [DOWN]` e
